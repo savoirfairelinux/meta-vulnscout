@@ -1,0 +1,68 @@
+![Vulnscout logo](./doc/vulnscout-logo.jpeg?raw=true)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
+`meta-vulnscout` is a Yocto meta-layer that uses `vulnscout` to scan a project, export its Software Bill of Materials (SBOM), and list the vulnerabilities that affect it. 
+Support for Cyclone DX, SPDX, Yocto JSON files, and Open VEX.
+
+## Requirements
+
+This layer, named `meta-vulnscout`, requires your project to be built with the generation of an SBOM and a CVE report. 
+
+If this is not the case yet, you can simply do the following to `build/conf/local.conf`:
+
+```shell
+INHERIT += "create-spdx"
+INHERIT += "cve-check"
+include conf/distro/include/cve-extra-exclusions.inc
+```
+
+Also, if you can add an extra parameter if you use `Cyclone DX` Software Bill of Materials with the following layer `https://github.com/savoirfairelinux/meta-cyclonedx.git` : 
+
+```shell
+INHERIT += "cyclonedx-export"
+```
+
+##  Installation
+
+To install this meta-layer, simply clone the repository into the `sources` directory and add it to your `build/conf/bblayers.conf` file:
+
+```shell
+$ cd sources
+$ git clone https://github.com/savoirfairelinux/meta-vulnscout.git
+```
+
+And in your `bblayers.conf` file:
+
+```shell
+BBLAYERS += "/path/to/meta-cyclonedx"
+```
+
+## Configuration
+
+To enable and configure Vulnscout, you simply add `inherit vulnscout` in your image recipe.
+
+This project contains an example as described in `recipes-core/images/core-image-minimal.bbappend`.
+
+## Building
+
+You can build your image as you normally would.
+
+As a result, you should see a new `.vulnscout` folder in `${TOPDIR}/..` (can be modified with variable `VULNSCOUT_ROOT_DIR`).
+
+The scan and analysis of vulnerabilities can start with the command:
+
+```shell
+<project_root>/.vulnscout/core-image-minimal-yoctolabs/vulnscout.sh
+```
+
+Without a custom configuration, a web interface will be started at the address `http://localhost:7275`.
+
+## Result
+
+![Screenshot](doc/vulnscout-ui.png)
+
+## License
+
+`Copyright (C) 2017-2025 Savoir-faire Linux, Inc.`
+
+meta-vulnscout is released under the Apache 2 license.
