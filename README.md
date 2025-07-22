@@ -52,7 +52,7 @@ As a result, you should see a new `.vulnscout` folder in `${TOPDIR}/..` (can be 
 The scan and analysis of vulnerabilities can start with the command:
 
 ```shell
-<project_root>/.vulnscout/core-image-minimal-yoctolabs/vulnscout.sh
+docker-compose -f "<project_root>/.vulnscout/core-image-minimal-yoctolabs/docker-compose.yml" up
 ```
 
 Without a custom configuration, a web interface will be started at the address `http://localhost:7275`.

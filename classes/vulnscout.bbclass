@@ -1,73 +1,80 @@
 # Vulnscout class variables for Yocto Project
-INPUT_FILES_NAME ?= "${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}"
-VULNSCOUT_SCRIPT ?= "${VULNSCOUT_LAYERDIR}/scripts/vulnscout.sh"
 VULNSCOUT_ROOT_DIR ?= "${TOPDIR}/.."
-VULNSCOUT_DEPLOY_DIR ?= "${VULNSCOUT_ROOT_DIR}/.vulnscout/${INPUT_FILES_NAME}"
-VULNSCOUT_DIR ?= "${VULNSCOUT_ROOT_DIR}/.vulnscout"
+VULNSCOUT_DEPLOY_DIR ?= "${VULNSCOUT_ROOT_DIR}/.vulnscout/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}"
+VULNSCOUT_CACHE_DIR ?= "${VULNSCOUT_ROOT_DIR}/.vulnscout/cache"
 
 # Repo and version of vulnscout to use
 VULNSCOUT_VERSION ?= "v0.6.0"
-DOCKER_IMAGE ?= "sflinux/vulnscout:$VULNSCOUT_VERSION"
+VULNSCOUT_DOCKER_IMAGE ?= "sflinux/vulnscout"
 VULNSCOUT_GIT_URI ?= "https://github.com/savoirfairelinux/vulnscout.git"
 
 # Variables for the vulnscout configuration
-INTERACTIVE_MODE ?= "true"
-FAIL_CONDITION ?= ""
-VERBOSE_MODE ?= "false"
-FLASK_RUN_PORT ?= "7275"
-FLASK_RUN_HOST ?= "0.0.0.0"
-GENERATE_DOCUMENTS ?= "summary.adoc,time_estimates.csv"
-IGNORE_PARSING_ERRORS ?= 'false'
+VULNSCOUT_ENV_INTERACTIVE_MODE ?= "true"
+VULNSCOUT_ENV_FAIL_CONDITION ?= ""
+VULNSCOUT_ENV_VERBOSE_MODE ?= "false"
+VULNSCOUT_ENV_FLASK_RUN_PORT ?= "7275"
+VULNSCOUT_ENV_FLASK_RUN_HOST ?= "0.0.0.0"
+VULNSCOUT_ENV_GENERATE_DOCUMENTS ?= "summary.adoc,time_estimates.csv"
+VULNSCOUT_ENV_IGNORE_PARSING_ERRORS ?= 'false'
 
-do_vulnscan() {
+do_vulnscout() {
     # Create a output directory for vulnscout configuration
     mkdir -p ${VULNSCOUT_DEPLOY_DIR}
 
-    # Add vulnscout script to the vulnscout directory
-    chmod +x ${VULNSCOUT_SCRIPT}
-    install -m 0755 ${VULNSCOUT_SCRIPT} ${VULNSCOUT_DEPLOY_DIR}
+    # Define Output YAML file
+    compose_file="${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
 
-    # Create a docker configuration file
-    docker_args="-e IGNORE_PARSING_ERRORS=${IGNORE_PARSING_ERRORS-false}"
+    # Add Header section
+    cat > "$compose_file" <<EOF
+services:
+  vulnscout:
+    image: ${VULNSCOUT_DOCKER_IMAGE}:${VULNSCOUT_VERSION}
+    container_name: vulnscout
+    restart: "no"
+    ports:
+      - "${VULNSCOUT_ENV_FLASK_RUN_PORT}:${VULNSCOUT_ENV_FLASK_RUN_PORT}"
+    volumes:
+EOF
 
-    if [ -n "${FLASK_RUN_HOST}" ]; then
-        docker_args="$docker_args -e FLASK_RUN_HOST=${FLASK_RUN_HOST}"
+    # Adding volumes to the docker-compose yml file
+    ${@bb.utils.contains('INHERIT', 'cve-check', 'echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json:/scan/inputs/yocto_cve_check/${IMAGE_LINK_NAME}.json:ro" >> $compose_file', '', d)}
+    ${@bb.utils.contains('INHERIT', 'create-spdx', 'echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.tar.zst:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.tar.zst:ro" >> $compose_file', '', d)}
+    ${@bb.utils.contains('INHERIT', 'cyclonedx-export', 'echo "      - ${DEPLOY_DIR}/cyclonedx-export:/scan/inputs/cdx:ro" >> $compose_file', '', d)}
+    echo "      - ${VULNSCOUT_DEPLOY_DIR}/output:/scan/outputs" >> "$compose_file"
+    echo "      - ${VULNSCOUT_CACHE_DIR}:/cache/vulnscout" >> "$compose_file"
+
+    # Add environnement variables
+    cat >> "$compose_file" <<EOF
+    environment:
+      - FLASK_RUN_PORT=${VULNSCOUT_ENV_FLASK_RUN_PORT}
+      - FLASK_RUN_HOST=${VULNSCOUT_ENV_FLASK_RUN_HOST}
+      - IGNORE_PARSING_ERRORS=${VULNSCOUT_ENV_IGNORE_PARSING_ERRORS}
+      - GENERATE_DOCUMENTS=${VULNSCOUT_ENV_GENERATE_DOCUMENTS}
+      - VERBOSE_MODE=${VULNSCOUT_ENV_VERBOSE_MODE}
+      - INTERACTIVE_MODE=${VULNSCOUT_ENV_INTERACTIVE_MODE}
+EOF
+
+    if [ -n "${VULNSCOUT_ENV_FAIL_CONDITION}" ]; then
+        echo "      - FAIL_CONDITION=${VULNSCOUT_ENV_FAIL_CONDITION}" >> "$compose_file"	
+    fi
+    if [ -n "${VULNSCOUT_ENV_PRODUCT_NAME}" ]; then
+        echo "      - PRODUCT_NAME=${VULNSCOUT_ENV_PRODUCT_NAME}" >> "$compose_file"	
+    fi
+    if [ -n "${VULNSCOUT_ENV_PRODUCT_VERSION}" ]; then
+        echo "      - PRODUCT_VERSION=${VULNSCOUT_ENV_PRODUCT_VERSION}" >> "$compose_file"
+    fi
+    if [ -n "${VULNSCOUT_ENV_COMPANY_NAME}" ]; then
+        echo "      - COMPANY_NAME=${VULNSCOUT_ENV_COMPANY_NAME}" >> "$compose_file"
+    fi
+    if [ -n "${VULNSCOUT_ENV_CONTACT_EMAIL}" ]; then
+        echo "      - CONTACT_EMAIL=${VULNSCOUT_ENV_CONTACT_EMAIL}" >> "$compose_file"
+    fi
+    if [ -n "${VULNSCOUT_ENV_DOCUMENT_URL}" ]; then
+        echo "      - DOCUMENT_URL=${VULNSCOUT_ENV_DOCUMENT_URL}" >> "$compose_file"
     fi
 
-    docker_args="$docker_args -e FLASK_RUN_PORT=${FLASK_RUN_PORT-7275}"
-    docker_args="$docker_args -p ${FLASK_RUN_PORT-7275}:${FLASK_RUN_PORT-7275}"
-    docker_args="$docker_args -e INTERACTIVE_MODE=${INTERACTIVE_MODE}"
-    docker_args="$docker_args -e VERBOSE_MODE=${VERBOSE_MODE}"
-    docker_args="$docker_args -e GENERATE_DOCUMENTS=\"${GENERATE_DOCUMENTS}\""
-
-    if [ -n "${FAIL_CONDITION}" ]; then
-        docker_args="$docker_args -e FAIL_CONDITION=${FAIL_CONDITION}"	
-    fi
-    if [ -n "${PRODUCT_NAME}" ]; then
-        docker_args="$docker_args -e PRODUCT_NAME=${PRODUCT_NAME}"
-    fi
-    if [ -n "${PRODUCT_VERSION}" ]; then
-        docker_args="$docker_args -e PRODUCT_VERSION=${PRODUCT_VERSION}"
-    fi
-    if [ -n "${COMPANY_NAME}" ]; then
-        docker_args="$docker_args -e COMPANY_NAME=${COMPANY_NAME}"
-    fi
-    if [ -n "${CONTACT_EMAIL}" ]; then
-        docker_args="$docker_args -e CONTACT_EMAIL=${CONTACT_EMAIL}"
-    fi
-    if [ -n "${DOCUMENT_URL}" ]; then
-        docker_args="$docker_args -e DOCUMENT_URL=${DOCUMENT_URL}"
-    fi
-
-    docker_args="$docker_args -v ${DEPLOY_DIR_IMAGE}/${INPUT_FILES_NAME}.spdx.tar.zst:/scan/inputs/spdx:ro"
-    docker_args="$docker_args -v ${DEPLOY_DIR_IMAGE}/${INPUT_FILES_NAME}.rootfs.json:/scan/inputs/yocto_cve_check:ro"
-    docker_args="$docker_args ${@bb.utils.contains('INHERIT', 'cyclonedx-export', '-v ${DEPLOY_DIR}/cyclonedx-export:/scan/inputs/cdx:ro', '', d)}"
-    docker_args="$docker_args -v ${VULNSCOUT_DEPLOY_DIR}/output:/scan/outputs"
-    docker_args="$docker_args -v ${VULNSCOUT_DIR}/cache:/cache/vulnscout"
-
-    echo "$docker_args" > ${VULNSCOUT_DEPLOY_DIR}/docker_args
-
-    bbplain "Vulnscout Succeed: start the vulnscout container with: ${VULNSCOUT_DEPLOY_DIR}/vulnscout.sh"
+    bbplain "Vulnscout Succeed: Docker Compose file set at ${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
+    bbplain "Vulnscout Info: Start with the command 'docker-compose -f \"${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml\" up'"
 }
 
-addtask vulnscan after do_rootfs before do_image_complete
+addtask vulnscout after do_rootfs before do_image
