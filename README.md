@@ -49,7 +49,13 @@ You can build your image as you normally would.
 
 As a result, you should see a new `.vulnscout` folder in `${TOPDIR}/..` (can be modified with variable `VULNSCOUT_ROOT_DIR`).
 
-The scan and analysis of vulnerabilities can start with the command:
+The scan and analysis of vulnerabilities can start with the yocto command:
+
+```shell
+bitbake core-image-minimal-yoctolabs -c start_vulnscout
+```
+
+Or you can do it manually with the command:
 
 ```shell
 docker-compose -f "<project_root>/.vulnscout/core-image-minimal-yoctolabs/docker-compose.yml" up

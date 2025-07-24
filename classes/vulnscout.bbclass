@@ -78,3 +78,22 @@ EOF
 }
 
 addtask vulnscout after do_rootfs before do_image
+
+python do_start_vulnscout() {
+    compose_file = d.getVar("VULNSCOUT_DEPLOY_DIR") + "/docker-compose.yml"
+
+    if not os.path.exists(compose_file):
+        bb.fatal(f"Cannot start Vulnscout container: {compose_file} does not exist. Run do_vulnscout first.")
+
+    # Prefer 'docker compose' if available
+    docker_compose_cmd = "docker-compose"
+    if os.system("docker-compose version > /dev/null 2>&1") == 0:
+        docker_compose_cmd = "docker compose"
+
+    # Use oe_terminal to run in a new interactive shell
+    cmd = f"sh -c 'docker-compose -f \"{compose_file}\" up; echo \"\\nContainer exited. Press any key to close...\"; read x'"
+    oe_terminal(cmd, "Vulnscout Container Logs", d)
+}
+do_start_vulnscout[nostamp] = "1"
+
+addtask start_vulnscout after do_image_complete
