@@ -80,19 +80,28 @@ EOF
 addtask setup_vulnscout after do_rootfs before do_image
 
 python do_vulnscout() {
+    import os
+    import subprocess
+    import shutil
+
     compose_file = d.getVar("VULNSCOUT_DEPLOY_DIR") + "/docker-compose.yml"
 
     if not os.path.exists(compose_file):
         bb.fatal(f"Cannot start Vulnscout container: {compose_file} does not exist. Run do_vulnscout first.")
 
-    # Prefer 'docker compose' if available
-    docker_compose_cmd = "docker-compose"
-    if os.system("docker-compose version > /dev/null 2>&1") == 0:
-        docker_compose_cmd = "docker compose"
+    # Check if docker-compose exists on host
+    if shutil.which("docker-compose") is None:
+        bb.fatal("'docker-compose' command not found on host. Please install docker-compose.")
 
     # Use oe_terminal to run in a new interactive shell
     cmd = f"sh -c 'docker-compose -f \"{compose_file}\" up; echo \"\\nContainer exited. Press any key to close...\"; read x'"
     oe_terminal(cmd, "Vulnscout Container Logs", d)
+
+    # Stop the container after use
+    try:
+        subprocess.run(["docker-compose", "-f", compose_file, "down"], check=True)
+    except subprocess.CalledProcessError as e:
+        bb.fatal(f"Failed to stop docker-compose: {e}")
 }
 do_vulnscout[nostamp] = "1"
 
