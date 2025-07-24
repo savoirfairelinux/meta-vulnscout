@@ -17,7 +17,7 @@ VULNSCOUT_ENV_FLASK_RUN_HOST ?= "0.0.0.0"
 VULNSCOUT_ENV_GENERATE_DOCUMENTS ?= "summary.adoc,time_estimates.csv"
 VULNSCOUT_ENV_IGNORE_PARSING_ERRORS ?= 'false'
 
-do_vulnscout() {
+do_setup_vulnscout() {
     # Create a output directory for vulnscout configuration
     mkdir -p ${VULNSCOUT_DEPLOY_DIR}
 
@@ -77,9 +77,9 @@ EOF
     bbplain "Vulnscout Info: Start with the command 'docker-compose -f \"${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml\" up'"
 }
 
-addtask vulnscout after do_rootfs before do_image
+addtask setup_vulnscout after do_rootfs before do_image
 
-python do_start_vulnscout() {
+python do_vulnscout() {
     compose_file = d.getVar("VULNSCOUT_DEPLOY_DIR") + "/docker-compose.yml"
 
     if not os.path.exists(compose_file):
@@ -94,6 +94,6 @@ python do_start_vulnscout() {
     cmd = f"sh -c 'docker-compose -f \"{compose_file}\" up; echo \"\\nContainer exited. Press any key to close...\"; read x'"
     oe_terminal(cmd, "Vulnscout Container Logs", d)
 }
-do_start_vulnscout[nostamp] = "1"
+do_vulnscout[nostamp] = "1"
 
-addtask start_vulnscout after do_image_complete
+addtask vulnscout after do_image_complete

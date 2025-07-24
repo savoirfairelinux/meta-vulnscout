@@ -4,6 +4,10 @@
 `meta-vulnscout` is a Yocto meta-layer that uses `vulnscout` to scan a project, export its Software Bill of Materials (SBOM), and list the vulnerabilities that affect it. 
 Support for Cyclone DX, SPDX, Yocto JSON files, and Open VEX.
 
+## Prerequisites
+
+The command `docker-compose` should be available on the host device.
+
 ## Requirements
 
 This layer, named `meta-vulnscout`, requires your project to be built with the generation of an SBOM and a CVE report. 
@@ -52,7 +56,7 @@ As a result, you should see a new `.vulnscout` folder in `${TOPDIR}/..` (can be 
 The scan and analysis of vulnerabilities can start with the yocto command:
 
 ```shell
-bitbake core-image-minimal-yoctolabs -c start_vulnscout
+bitbake core-image-minimal-yoctolabs -c vulnscout
 ```
 
 Or you can do it manually with the command:
