@@ -16,6 +16,7 @@ VULNSCOUT_ENV_FLASK_RUN_PORT ?= "7275"
 VULNSCOUT_ENV_FLASK_RUN_HOST ?= "0.0.0.0"
 VULNSCOUT_ENV_GENERATE_DOCUMENTS ?= "summary.adoc,time_estimates.csv"
 VULNSCOUT_ENV_IGNORE_PARSING_ERRORS ?= 'false'
+VULNSCOUT_ENV_NVD_API_KEY ?= ""
 
 do_setup_vulnscout() {
     # Create a output directory for vulnscout configuration
@@ -71,6 +72,9 @@ EOF
     fi
     if [ -n "${VULNSCOUT_ENV_DOCUMENT_URL}" ]; then
         echo "      - DOCUMENT_URL=${VULNSCOUT_ENV_DOCUMENT_URL}" >> "$compose_file"
+    fi
+    if [ -n "${VULNSCOUT_ENV_NVD_API_KEY}" ]; then
+        echo "      - NVD_API_KEY=${VULNSCOUT_ENV_NVD_API_KEY}" >> "$compose_file"
     fi
 
     bbplain "Vulnscout Succeed: Docker Compose file set at ${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"

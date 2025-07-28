@@ -26,6 +26,9 @@ Also, if you can add an extra parameter if you use `Cyclone DX` Software Bill of
 INHERIT += "cyclonedx-export"
 ```
 
+Also, for a faster NVD database downloading during vulnscout setup, you can set a NVD key with the variable `VULNSCOUT_ENV_NVD_API_KEY`. 
+You can generate a new NVD key at :  https://nvd.nist.gov/developers/request-an-api-key
+
 ##  Installation
 
 To install this meta-layer, simply clone the repository into the `sources` directory and add it to your `build/conf/bblayers.conf` file:
