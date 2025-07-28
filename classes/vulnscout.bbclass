@@ -85,21 +85,29 @@ python do_vulnscout() {
     import shutil
 
     compose_file = d.getVar("VULNSCOUT_DEPLOY_DIR") + "/docker-compose.yml"
+    compose_cmd = ""
 
     if not os.path.exists(compose_file):
         bb.fatal(f"Cannot start Vulnscout container: {compose_file} does not exist. Run do_vulnscout first.")
 
     # Check if docker-compose exists on host
-    if shutil.which("docker-compose") is None:
-        bb.fatal("'docker-compose' command not found on host. Please install docker-compose.")
+    if shutil.which("docker-compose"):
+        compose_cmd = "docker-compose"
+    else:
+        # Check for 'docker compose' subcommand
+        try:
+            subprocess.run(["docker", "compose", "version"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            compose_cmd = "docker compose"
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            bb.fatal("Neither 'docker-compose' nor 'docker compose' are available. Please install one of them.")
 
     # Use oe_terminal to run in a new interactive shell
-    cmd = f"sh -c 'docker-compose -f \"{compose_file}\" up; echo \"\\nContainer exited. Press any key to close...\"; read x'"
+    cmd = f"sh -c '{compose_cmd} -f \"{compose_file}\" up; echo \"\\nContainer exited. Press any key to close...\"; read x'"
     oe_terminal(cmd, "Vulnscout Container Logs", d)
 
     # Stop the container after use
     try:
-        subprocess.run(["docker-compose", "-f", compose_file, "down"], check=True)
+        subprocess.run(compose_cmd.split() + ["-f", compose_file, "down"], check=True)
     except subprocess.CalledProcessError as e:
         bb.fatal(f"Failed to stop docker-compose: {e}")
 }
