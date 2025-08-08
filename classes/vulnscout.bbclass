@@ -4,7 +4,7 @@ VULNSCOUT_DEPLOY_DIR ?= "${VULNSCOUT_ROOT_DIR}/.vulnscout/${IMAGE_BASENAME}${IMA
 VULNSCOUT_CACHE_DIR ?= "${VULNSCOUT_ROOT_DIR}/.vulnscout/cache"
 
 # Repo and version of vulnscout to use
-VULNSCOUT_VERSION ?= "v0.6.0"
+VULNSCOUT_VERSION ?= "v0.7.0"
 VULNSCOUT_DOCKER_IMAGE ?= "sflinux/vulnscout"
 VULNSCOUT_GIT_URI ?= "https://github.com/savoirfairelinux/vulnscout.git"
 
@@ -16,7 +16,6 @@ VULNSCOUT_ENV_FLASK_RUN_PORT ?= "7275"
 VULNSCOUT_ENV_FLASK_RUN_HOST ?= "0.0.0.0"
 VULNSCOUT_ENV_GENERATE_DOCUMENTS ?= "summary.adoc,time_estimates.csv"
 VULNSCOUT_ENV_IGNORE_PARSING_ERRORS ?= 'false'
-VULNSCOUT_ENV_NVD_API_KEY ?= ""
 
 do_setup_vulnscout() {
     # Create a output directory for vulnscout configuration
@@ -73,8 +72,8 @@ EOF
     if [ -n "${VULNSCOUT_ENV_DOCUMENT_URL}" ]; then
         echo "      - DOCUMENT_URL=${VULNSCOUT_ENV_DOCUMENT_URL}" >> "$compose_file"
     fi
-    if [ -n "${VULNSCOUT_ENV_NVD_API_KEY}" ]; then
-        echo "      - NVD_API_KEY=${VULNSCOUT_ENV_NVD_API_KEY}" >> "$compose_file"
+    if [ -n "${NVDCVE_API_KEY}" ]; then
+        echo "      - NVD_API_KEY=${NVDCVE_API_KEY}" >> "$compose_file"
     fi
 
     bbplain "Vulnscout Succeed: Docker Compose file set at ${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"

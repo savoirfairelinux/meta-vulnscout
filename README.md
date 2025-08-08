@@ -6,7 +6,7 @@ Support for Cyclone DX, SPDX, Yocto JSON files, and Open VEX.
 
 ## Prerequisites
 
-The command `docker-compose` should be available on the host device.
+The command `docker-compose` or `docker compose` should be available on the host device.
 
 ## Requirements
 
@@ -26,7 +26,10 @@ Also, if you can add an extra parameter if you use `Cyclone DX` Software Bill of
 INHERIT += "cyclonedx-export"
 ```
 
-Also, for a faster NVD database downloading during vulnscout setup, you can set a NVD key with the variable `VULNSCOUT_ENV_NVD_API_KEY`. 
+Also, for a faster NVD database downloading during vulnscout setup, you can set a NVD key with the variable `NVDCVE_API_KEY`. 
+
+Yocto Documentation reference : https://docs.yoctoproject.org/ref-manual/variables.html#term-NVDCVE_API_KEY
+
 You can generate a new NVD key at :  https://nvd.nist.gov/developers/request-an-api-key
 
 ##  Installation
@@ -65,7 +68,7 @@ bitbake core-image-minimal-yoctolabs -c vulnscout
 Or you can do it manually with the command:
 
 ```shell
-docker-compose -f "<project_root>/.vulnscout/core-image-minimal-yoctolabs/docker-compose.yml" up
+docker compose -f "<project_root>/.vulnscout/core-image-minimal-yoctolabs/docker-compose.yml" up
 ```
 
 Without a custom configuration, a web interface will be started at the address `http://localhost:7275`.
