@@ -15,7 +15,6 @@ This layer, named `meta-vulnscout`, requires your project to be built with the g
 If this is not the case yet, you can simply do the following to `build/conf/local.conf`:
 
 ```shell
-INHERIT += "create-spdx"
 INHERIT += "cve-check"
 include conf/distro/include/cve-extra-exclusions.inc
 ```
