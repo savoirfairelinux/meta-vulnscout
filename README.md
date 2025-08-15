@@ -12,12 +12,14 @@ The command `docker-compose` or `docker compose` should be available on the host
 
 This layer, named `meta-vulnscout`, requires your project to be built with the generation of an SBOM and a CVE report. 
 
-If this is not the case yet, you can simply do the following to `build/conf/local.conf`:
+If this is not the case yet, you can simply add the following to `build/conf/local.conf`:
 
 ```shell
 INHERIT += "cve-check"
 include conf/distro/include/cve-extra-exclusions.inc
 ```
+
+You may also need to add `INHERIT += "create-spdx"` if you are not using the default `poky` distro and if your used distro doesn't inherit it already.
 
 Also, if you can add an extra parameter if you use `Cyclone DX` Software Bill of Materials with the following layer `https://github.com/savoirfairelinux/meta-cyclonedx.git` : 
 
