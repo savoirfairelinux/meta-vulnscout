@@ -4,7 +4,7 @@ VULNSCOUT_DEPLOY_DIR ?= "${VULNSCOUT_ROOT_DIR}/.vulnscout/${IMAGE_BASENAME}${IMA
 VULNSCOUT_CACHE_DIR ?= "${VULNSCOUT_ROOT_DIR}/.vulnscout/cache"
 
 # Repo and version of vulnscout to use
-VULNSCOUT_VERSION ?= "v0.7.0"
+VULNSCOUT_VERSION ?= "v0.7.1"
 VULNSCOUT_DOCKER_IMAGE ?= "sflinux/vulnscout"
 VULNSCOUT_GIT_URI ?= "https://github.com/savoirfairelinux/vulnscout.git"
 
