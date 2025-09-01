@@ -45,7 +45,7 @@ $ git clone https://github.com/savoirfairelinux/meta-vulnscout.git
 And in your `bblayers.conf` file:
 
 ```shell
-BBLAYERS += "/path/to/meta-cyclonedx"
+BBLAYERS += "/path/to/meta-vulnscout"
 ```
 
 ## Configuration
