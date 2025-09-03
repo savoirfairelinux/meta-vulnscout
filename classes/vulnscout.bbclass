@@ -38,8 +38,8 @@ EOF
 
     # Adding volumes to the docker-compose yml file
     ${@bb.utils.contains('INHERIT', 'cve-check', 'echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json:/scan/inputs/yocto_cve_check/${IMAGE_LINK_NAME}.json:ro" >> $compose_file', '', d)}
-    
-    # Test if we use SPDX 3.0 or SPDX 2.2 
+
+    # Test if we use SPDX 3.0 or SPDX 2.2
     if ${@bb.utils.contains('INHERIT', 'create-spdx', 'true', 'false', d)}; then
         echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.json:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.json:ro" >> "$compose_file"
     elif ${@bb.utils.contains('INHERIT', 'create-spdx-2.2', 'true', 'false', d)}; then
@@ -61,10 +61,10 @@ EOF
 EOF
 
     if [ -n "${VULNSCOUT_ENV_FAIL_CONDITION}" ]; then
-        echo "      - FAIL_CONDITION=${VULNSCOUT_ENV_FAIL_CONDITION}" >> "$compose_file"	
+        echo "      - FAIL_CONDITION=${VULNSCOUT_ENV_FAIL_CONDITION}" >> "$compose_file"
     fi
     if [ -n "${VULNSCOUT_ENV_PRODUCT_NAME}" ]; then
-        echo "      - PRODUCT_NAME=${VULNSCOUT_ENV_PRODUCT_NAME}" >> "$compose_file"	
+        echo "      - PRODUCT_NAME=${VULNSCOUT_ENV_PRODUCT_NAME}" >> "$compose_file"
     fi
     if [ -n "${VULNSCOUT_ENV_PRODUCT_VERSION}" ]; then
         echo "      - PRODUCT_VERSION=${VULNSCOUT_ENV_PRODUCT_VERSION}" >> "$compose_file"
