@@ -55,10 +55,10 @@ EOF
 EOF
 
     if [ -n "${VULNSCOUT_ENV_FAIL_CONDITION}" ]; then
-        echo "      - FAIL_CONDITION=${VULNSCOUT_ENV_FAIL_CONDITION}" >> "$compose_file"	
+        echo "      - FAIL_CONDITION=${VULNSCOUT_ENV_FAIL_CONDITION}" >> "$compose_file"
     fi
     if [ -n "${VULNSCOUT_ENV_PRODUCT_NAME}" ]; then
-        echo "      - PRODUCT_NAME=${VULNSCOUT_ENV_PRODUCT_NAME}" >> "$compose_file"	
+        echo "      - PRODUCT_NAME=${VULNSCOUT_ENV_PRODUCT_NAME}" >> "$compose_file"
     fi
     if [ -n "${VULNSCOUT_ENV_PRODUCT_VERSION}" ]; then
         echo "      - PRODUCT_VERSION=${VULNSCOUT_ENV_PRODUCT_VERSION}" >> "$compose_file"

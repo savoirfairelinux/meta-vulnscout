@@ -1,7 +1,7 @@
 ![Vulnscout logo](./doc/vulnscout-logo.jpeg?raw=true)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-`meta-vulnscout` is a Yocto meta-layer that uses `vulnscout` to scan a project, export its Software Bill of Materials (SBOM), and list the vulnerabilities that affect it. 
+`meta-vulnscout` is a Yocto meta-layer that uses `vulnscout` to scan a project, export its Software Bill of Materials (SBOM), and list the vulnerabilities that affect it.
 Support for Cyclone DX, SPDX, Yocto JSON files, and Open VEX.
 
 ## Prerequisites
@@ -10,7 +10,7 @@ The command `docker-compose` or `docker compose` should be available on the host
 
 ## Requirements
 
-This layer, named `meta-vulnscout`, requires your project to be built with the generation of an SBOM and a CVE report. 
+This layer, named `meta-vulnscout`, requires your project to be built with the generation of an SBOM and a CVE report.
 
 If this is not the case yet, you can simply add the following to `build/conf/local.conf`:
 
@@ -21,13 +21,13 @@ include conf/distro/include/cve-extra-exclusions.inc
 
 You may also need to add `INHERIT += "create-spdx"` if you are not using the default `poky` distro and if your used distro doesn't inherit it already.
 
-Also, if you can add an extra parameter if you use `Cyclone DX` Software Bill of Materials with the following layer `https://github.com/savoirfairelinux/meta-cyclonedx.git` : 
+Also, if you can add an extra parameter if you use `Cyclone DX` Software Bill of Materials with the following layer `https://github.com/savoirfairelinux/meta-cyclonedx.git` :
 
 ```shell
 INHERIT += "cyclonedx-export"
 ```
 
-Also, for a faster NVD database downloading during vulnscout setup, you can set a NVD key with the variable `NVDCVE_API_KEY`. 
+Also, for a faster NVD database downloading during vulnscout setup, you can set a NVD key with the variable `NVDCVE_API_KEY`.
 
 Yocto Documentation reference : https://docs.yoctoproject.org/ref-manual/variables.html#term-NVDCVE_API_KEY
 
