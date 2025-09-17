@@ -86,6 +86,7 @@ python do_vulnscout() {
     import os
     import subprocess
     import shutil
+    import re
 
     compose_file = d.getVar("VULNSCOUT_DEPLOY_DIR") + "/docker-compose.yml"
     compose_cmd = ""
@@ -103,6 +104,34 @@ python do_vulnscout() {
             compose_cmd = "docker compose"
         except (subprocess.CalledProcessError, FileNotFoundError):
             bb.fatal("Neither 'docker-compose' nor 'docker compose' are available. Please install one of them.")
+
+    def get_vulnscout_containers():
+        # Check if there is already some vulnscout containers and retrieve their IDs
+        check_cmd = subprocess.run(['docker', 'ps', '-a', '--filter', 'name=vulnscout','--format', '{{.ID}}'], capture_output=True, text=True)
+        containers = check_cmd.stdout.strip().splitlines()
+        return containers
+
+    containers = get_vulnscout_containers()
+    retry_count = 0
+    # If there is already vulnscout containers, delete them. If cannot delete a container, try 5 times then stop.
+    while containers:
+        bb.plain(f"Found {len(containers)} vulnscout container(s), deleting...")
+        success = True              
+        for cid in containers:
+            result = subprocess.run(['docker', 'rm', '-f', cid])
+            if result.returncode != 0:
+                    bb.war(f"Failed to delete container {cid}: {result.stderr.strip()}")
+                    success = False
+        
+        if success:
+            retry_count = 0
+        else:
+            retry_count += 1
+            if retry_count >= 5:
+                bb.fatal("Cannot delete old vulnscout containers. Exiting...")
+                break
+        # re-check after deletion
+        containers = get_vulnscout_containers()
 
     # Use oe_terminal to run in a new interactive shell
     cmd = f"sh -c '{compose_cmd} -f \"{compose_file}\" up; echo \"\\nContainer exited. Press any key to close...\"; read x'"
