@@ -78,18 +78,64 @@ EOF
 
     bbplain "Vulnscout Succeed: Docker Compose file set at ${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
     bbplain "Vulnscout Info: Start with the command 'docker-compose -f \"${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml\" up'"
+
+    # Delete do_vulnscout_ci flag
+    rm -f "${WORKDIR}/vulnscout_ci_was_run"
 }
 
 addtask setup_vulnscout after do_rootfs before do_image
+
+python do_vulnscout_ci() {
+    import subprocess
+    import os
+
+    # Define Output YAML file
+    compose_file = d.getVar("VULNSCOUT_DEPLOY_DIR") + "/docker-compose.yml"
+
+    # Deactive the interactive mode in the docker-compose file
+    subprocess.run(['sed', '-i', 's/INTERACTIVE_MODE=true/INTERACTIVE_MODE=false/g', compose_file])
+
+    old_fail_condition = d.getVar("VULNSCOUT_ENV_FAIL_CONDITION")
+    new_fail_condition = d.getVar("VULS_FAIL_CONDITION",)
+
+    # Chekc if there is a old_fail_condition set up and replace it by the new one
+    if new_fail_condition:
+        if old_fail_condition:
+            subprocess.run(['sed', '-i', 's/FAIL_CONDITION='+ old_fail_condition + '/FAIL_CONDITION= + new_fail_condition + /g', compose_file])
+        else:
+            subprocess.run(['sed', '-i', "/INTERACTIVE_MODE=false/a \      \- FAIL_CONDITION=" + new_fail_condition, compose_file])
+    # If there is not a new_fail_condition and not a old one clean the file
+    else:
+        if not old_fail_condition:
+            subprocess.run(['sed', '-i', '/FAIL_CONDITION=/d', compose_file])
+
+    # Create a flag to inform that do_vulnscout_ci has been run
+    open(d.getVar('WORKDIR') + '/vulnscout_ci_was_run', 'w').close()
+
+    # Call the do_vulnscout function
+    bb.build.exec_func("do_vulnscout",d)
+}
 
 python do_vulnscout() {
     import os
     import subprocess
     import shutil
+    import sys
+    from os import system
 
+    #Folder variables
     compose_file = d.getVar("VULNSCOUT_DEPLOY_DIR") + "/docker-compose.yml"
     compose_cmd = ""
+    log_path = d.getVar("T") + "/log.do_vulnscout_ci"
+    output_vulnscout = d.getVar("VULNSCOUT_DEPLOY_DIR") + "/ouput/"
 
+    fail_condition = d.getVar("VULS_FAIL_CONDITION")
+
+    # If there is not a new_fail_condition one, check if there is a old one
+    if not fail_condition:
+        fail_condition = d.getVar("VULNSCOUT_ENV_FAIL_CONDITION")
+
+    # Check if docker-compose file has been created
     if not os.path.exists(compose_file):
         bb.fatal(f"Cannot start Vulnscout container: {compose_file} does not exist. Run do_vulnscout first.")
 
@@ -104,9 +150,44 @@ python do_vulnscout() {
         except (subprocess.CalledProcessError, FileNotFoundError):
             bb.fatal("Neither 'docker-compose' nor 'docker compose' are available. Please install one of them.")
 
-    # Use oe_terminal to run in a new interactive shell
-    cmd = f"sh -c '{compose_cmd} -f \"{compose_file}\" up; echo \"\\nContainer exited. Press any key to close...\"; read x'"
-    oe_terminal(cmd, "Vulnscout Container Logs", d)
+    # Check if vulnscount_ci was run, if so do not open a new shell
+    if os.path.exists(d.getVar('WORKDIR') + '/vulnscout_ci_was_run'):
+        if fail_condition:
+            bb.warn(f"Launching vulnscout in CI mode with fail condition set has: " + fail_condition + " Scanning ..." )
+        else:
+            bb.warn(f"Launching vulnscout in CI mode without fail condition. Scanning ...")
+        subprocess.run([compose_cmd, '-f', compose_file, 'up'], check=True)
+
+        # Retrieve container status to check if it ended with a error code
+        docker_status = subprocess.run(['docker', 'inspect', 'vulnscout', '--format', '{{.State.ExitCode}}'], capture_output=True, text=True)
+        docker_exit_code = int(docker_status.stdout.strip())
+
+        # Retrieve all the logs from the container vulnscout
+        docker_log = subprocess.run(['docker', 'logs', 'vulnscout'], capture_output=True, text=True)
+        docker_result = docker_log.stdout.strip()
+
+        # If the container ended with a error code, stop the code and print it.
+        if docker_exit_code == 2:
+            bb.fatal(
+                f"\n----------------Vulnscout trigger fail condition----------------\n"
+                f"----------Trigger condition set : {fail_condition}---------- \n"
+                f"{docker_result}"
+                f"\n \n ---Vulnscout exit with the code 2 due to fail condition triggered: {fail_condition}---\n"
+                f"---Vulnscout has generated multiple files here : {output_vulnscout} ---\n" )
+        # Else only show the logs from the container
+        else:
+            bb.plain("\n----------------Vulnscout scanning----------------")
+            if fail_condition:
+                bb.plain("----------Trigger condition set : {fail_condition}---------- \n")
+            else:
+                bb.plain("----------Trigger condition not set----------")
+            bb.plain(
+                f"{docker_result}"
+                f"\n---Vulnscout has generated multiple files here : {output_vulnscout} ---\n" )
+    else:
+        # Use oe_terminal to run in a new interactive shell
+        cmd = f"sh -c '{compose_cmd} -f \"{compose_file}\" up; echo \"\\nContainer exited. Press any key to close...\"; read x'"
+        oe_terminal(cmd, "Vulnscout Container Logs", d)
 
     # Stop the container after use
     try:
@@ -115,5 +196,7 @@ python do_vulnscout() {
         bb.fatal(f"Failed to stop docker-compose: {e}")
 }
 do_vulnscout[nostamp] = "1"
+do_vulnscout_ci[nostamp] = "1"
 
 addtask vulnscout after do_image_complete
+addtask vulnscout_ci after do_setup_vulnscout
