@@ -207,7 +207,7 @@ python do_vulnscout() {
         else:
             bb.plain("\n----------------Vulnscout scanning----------------")
             if fail_condition:
-                bb.plain("----------Trigger condition set : {fail_condition}---------- \n")
+                bb.plain(f"----------Trigger condition set : {fail_condition}---------- \n")
             else:
                 bb.plain("----------Trigger condition not set----------")
             bb.plain(
