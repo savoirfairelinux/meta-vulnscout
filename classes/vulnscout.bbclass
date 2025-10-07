@@ -63,8 +63,8 @@ EOF
     if [ -n "${VULNSCOUT_ENV_PRODUCT_VERSION}" ]; then
         echo "      - PRODUCT_VERSION=${VULNSCOUT_ENV_PRODUCT_VERSION}" >> "$compose_file"
     fi
-    if [ -n "${VULNSCOUT_ENV_COMPANY_NAME}" ]; then
-        echo "      - COMPANY_NAME=${VULNSCOUT_ENV_COMPANY_NAME}" >> "$compose_file"
+    if [ -n "${VULNSCOUT_ENV_AUTHOR_NAME}" ]; then
+        echo "      - AUTHOR_NAME=${VULNSCOUT_ENV_AUTHOR_NAME}" >> "$compose_file"
     fi
     if [ -n "${VULNSCOUT_ENV_CONTACT_EMAIL}" ]; then
         echo "      - CONTACT_EMAIL=${VULNSCOUT_ENV_CONTACT_EMAIL}" >> "$compose_file"
@@ -138,7 +138,7 @@ python do_vulnscout() {
 
     # Check if docker-compose file has been created
     if not os.path.exists(compose_file):
-        bb.fatal(f"Cannot start Vulnscout container: {compose_file} does not exist. Run do_vulnscout first.")
+        bb.fatal(f"Cannot start Vulnscout container: {compose_file} does not exist. Run do_setup_vulnscout first.")
 
     # Check if docker-compose exists on host
     if shutil.which("docker-compose"):
