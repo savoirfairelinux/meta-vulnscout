@@ -185,7 +185,7 @@ python do_vulnscout() {
             bb.warn(f"Launching vulnscout in CI mode with fail condition set has: " + fail_condition + " Scanning ..." )
         else:
             bb.warn(f"Launching vulnscout in CI mode without fail condition. Scanning ...")
-        subprocess.run([compose_cmd, '-f', compose_file, 'up'], check=True)
+        subprocess.run(compose_cmd.split() + ['-f', compose_file, 'up'], check=True)
 
         # Retrieve container status to check if it ended with a error code
         docker_status = subprocess.run(['docker', 'inspect', 'vulnscout', '--format', '{{.State.ExitCode}}'], capture_output=True, text=True)
