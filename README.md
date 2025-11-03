@@ -6,7 +6,7 @@ Support for Cyclone DX, SPDX, Yocto JSON files, and Open VEX.
 
 ## Requirements
 
-The command `docker-compose` or `docker compose` should be available on the host device.
+The command `docker-compose` or `docker compose` and `docker` should be available on the host device.
 
 ##  Installation
 
@@ -105,7 +105,7 @@ Using a Docker container to build the project requires additional configuration 
 
 Indeed, the web interface won't be mapped to the host if the building Docker container is not properly configured.
 
-CQFD requires adding `docker-compose-v2` to your *.cfqd/docker/Dockerfile* and exporting the following variable:
+CQFD requires adding `docker-compose-v2` to the package installed in your *.cfqd/docker/Dockerfile* and exporting the following variable:
 
 ``` bash
 export CQFD_EXTRA_RUN_ARGS="-v /run/docker.sock:/run/docker.sock"
@@ -128,6 +128,24 @@ cqfd run ./build.sh -- bitbake <your_Yocto_image> -c vulnscout
 If the container can't be configured (e.g., with kas-container).
 Vulnscout web interface can still be run directly on the host with the ' docker-compose` command.
 
+### Using CI Mode with a building Docker container
+To be able to launch VulnScout in the CI mode with a building Docker container, you need to add the following lines:
+``` bash
+ENV BB_ENV_PASSTHROUGH="VULS_FAIL_CONDITION"
+ENV VULS_FAIL_CONDITION="<your_condition>"
+```
+in your *.cfqd/docker/Dockerfile*. As mentioned, you need to use this environment variable for the CI mode.
+
+To launch VulnScout in CI:
+
+ **If you use CQFD and KAS**
+``` bash
+cqfd kas shell -c "bitbake -c <your_Yocto_image> -c vulnscout_ci"
+```
+**If you use CQFD and the script build.sh made by Savoir-Faire Linux**
+```bash
+cqfd run ./build.sh -- bitbake <your_Yocto_image> -c vulnscout_ci
+```
 ## Result
 
 ![Screenshot](doc/vulnscout-ui.png)
