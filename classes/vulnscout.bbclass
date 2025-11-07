@@ -17,6 +17,48 @@ VULNSCOUT_ENV_FLASK_RUN_HOST ?= "0.0.0.0"
 VULNSCOUT_ENV_GENERATE_DOCUMENTS ?= "summary.adoc,time_estimates.csv"
 VULNSCOUT_ENV_IGNORE_PARSING_ERRORS ?= 'false'
 
+# Enable or disable the kernel CVE improve feature
+VULNSCOUT_KERNEL_IMPROVE_CVE ?= "fasle"
+
+python do_clone_kernel_cve() {
+    import subprocess
+    import shutil, os
+    kernel_improve_cve = d.getVar("VULNSCOUT_KERNEL_IMPROVE_CVE")
+    check_spdx = d.getVar("INHERIT")
+    rootdir = os.path.join(d.getVar("WORKDIR"), "vulns")
+
+    # Check if the feature is enabled and if SPDX 2.2 is not used
+    if kernel_improve_cve == "true" and "create-spdx-2.2" not in check_spdx:
+        # Delete previous folder for fetching update
+        subprocess.run(['rm', '-rf', rootdir])
+        d.setVar("SRC_URI", "git://git.kernel.org/pub/scm/linux/security/vulns.git;branch=master;protocol=https")
+        d.setVar("SRCREV", "${AUTOREV}")
+        src_uri = (d.getVar('SRC_URI') or "").split()
+        # Fetch the kernel vulnerabilities sources
+        fetcher = bb.fetch2.Fetch(src_uri, d)
+        fetcher.download()
+        # Unpack into the standard work directory
+        fetcher.unpack(rootdir)
+
+        # Remove the folder ${PN} set by unpack (like core-image-minimal)
+        subdirs = [d for d in os.listdir(rootdir) if os.path.isdir(os.path.join(rootdir, d))]
+        if len(subdirs) == 1:
+            srcdir = os.path.join(rootdir, subdirs[0])
+            for f in os.listdir(srcdir):
+                shutil.move(os.path.join(srcdir, f), rootdir)
+            shutil.rmtree(srcdir)
+        bb.plain("Vulnerabilities repo unpacked into: %s" % rootdir)
+
+    elif kernel_improve_cve == "false":
+        bb.warn(f"Vulnscout: Kernel enhance CVEs desactivate. cve_check will be incomplete and will miss some vulnerabilities")
+    elif "create-spdx-2.2" in check_spdx:
+        bb.warn(f"Vulnscout: Kernel enhance CVEs desactivate because SPDX 2.2 is used. cve_check will be incomplete and will miss some vulnerabilities")
+}
+
+do_clone_kernel_cve[network] = "1"
+do_clone_kernel_cve[nostamp] = "1"
+addtask clone_kernel_cve after do_fetch before do_setup_vulnscout
+
 do_setup_vulnscout() {
     # Create a output directory for vulnscout configuration
     mkdir -p ${VULNSCOUT_DEPLOY_DIR}
@@ -91,6 +133,42 @@ EOF
 
 addtask setup_vulnscout after do_rootfs before do_image
 
+do_enhance_cve_check_with_kernel_vulns() {
+    spdx_file="${SPDXIMAGEDEPLOYDIR}/${IMAGE_LINK_NAME}.spdx.json"
+    original_cve_check_file="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json"
+    new_cve_report_file="${DEPLOY_DIR_IMAGE}/enhance-cve-check.json"
+    docker_compose_file="${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
+    improve_kernel_cve_script=$(find ${VULNSCOUT_ROOT_DIR} -name "improve_kernel_cve_report.py")
+
+    if [ "${VULNSCOUT_KERNEL_IMPROVE_CVE}" != "true" ]; then
+        bbwarn "Vulnscout: Skipping enhance cve_check with kernel vulnerabilities (VULNSCOUT_KERNEL_IMPROVE_CVE set to false)"
+        return 0
+    elif ${@bb.utils.contains('INHERIT', 'create-spdx-2.2', 'true', 'false', d)}; then
+        bbwarn "Vulnscout: Skipping enhance cve_check with kernel vulnerabilities because SPDX 2.2 is used."
+        return 0
+    elif [ ! -f "${spdx_file}" ]; then
+        bbwarn "Vulnscout: SPDX file not found: ${spdx_file}. Skipping enhance cve_check with kernel vulnerabilities."
+        return 0
+    elif [ ! -f "${original_cve_check_file}" ]; then
+        bbwarn "Vulnscout: CVE_CHECK file not found: ${original_cve_check_file}. Skipping enhance cve_check with kernel vulnerabilities."
+        return 0
+    fi
+
+    #Launch the new script to improve the cve report
+    bbplain "Launching kernel improve cve report script..."
+    python3 "${improve_kernel_cve_script}" \
+        --spdx "${spdx_file}" \
+        --old-cve-report "${original_cve_check_file}" \
+        --new-cve-report "${new_cve_report_file}" \
+        --datadir "${WORKDIR}/vulns"
+
+    # Replace the old cve report file in the docker-compose file by the new one
+    bbplain "Configuring Vulnscout with the new cve report file..."
+    sed -i -E "s|^([[:space:]]*)-[[:space:]]*.*/yocto_cve_check/[^:]*\.json:ro,Z|\1- ${new_cve_report_file}:/scan/inputs/yocto_cve_check/enhance-cve-check.json:ro,Z|" "$docker_compose_file"
+}
+
+addtask enhance_cve_check_with_kernel_vulns after do_create_image_spdx before do_vulnscout
+
 python do_vulnscout_ci() {
     import subprocess
     import os
@@ -121,6 +199,9 @@ python do_vulnscout_ci() {
     # Call the do_vulnscout function
     bb.build.exec_func("do_vulnscout",d)
 }
+
+do_vulnscout_ci[nostamp] = "1"
+addtask vulnscout_ci after do_setup_vulnscout
 
 python do_vulnscout() {
     import os
@@ -230,8 +311,6 @@ python do_vulnscout() {
     except subprocess.CalledProcessError as e:
         bb.fatal(f"Failed to stop docker-compose: {e}")
 }
-do_vulnscout[nostamp] = "1"
-do_vulnscout_ci[nostamp] = "1"
 
+do_vulnscout[nostamp] = "1"
 addtask vulnscout after do_image_complete
-addtask vulnscout_ci after do_setup_vulnscout

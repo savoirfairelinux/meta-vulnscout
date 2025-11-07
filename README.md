@@ -128,6 +128,17 @@ cqfd run ./build.sh -- bitbake <your_Yocto_image> -c vulnscout
 If the container can't be configured (e.g., with kas-container).
 Vulnscout web interface can still be run directly on the host with the ' docker-compose` command.
 
+## Using improve kernel cve script
+In the recent update of Whinlatter, a new script named "improve_kernel_cve_report.py" has been realesed.
+This script is better at finding CVEs then `cve-check` so it is now possible to use it with meta-vulnscount.
+
+All you need to do is to set the variable `VULNSCOUT_KERNEL_IMPROVE_CVE` to true in the `vulnscout.bbclass` file.
+
+> [!WARNING]
+> To use this script, is it needed to clone this project https://git.kernel.org/pub/scm/linux/security/vulns.git/log/ which contain the vulnerabilities.
+> meta-vulnscout will automated clone and use the project when the variable `VULNSCOUT_KERNEL_IMPROVE_CVE` is set to true.
+> The script is only working whith SPDX 3.0
+
 ## Result
 
 ![Screenshot](doc/vulnscout-ui.png)
