@@ -18,7 +18,7 @@ VULNSCOUT_ENV_GENERATE_DOCUMENTS ?= "summary.adoc,time_estimates.csv"
 VULNSCOUT_ENV_IGNORE_PARSING_ERRORS ?= 'false'
 
 # Enable or disable the kernel CVE improve feature
-VULNSCOUT_KERNEL_IMPROVE_CVE ?= "fasle"
+VULNSCOUT_KERNEL_IMPROVE_CVE ?= "true"
 
 python do_clone_kernel_cve() {
     import subprocess
@@ -136,7 +136,7 @@ addtask setup_vulnscout after do_rootfs before do_image
 do_enhance_cve_check_with_kernel_vulns() {
     spdx_file="${SPDXIMAGEDEPLOYDIR}/${IMAGE_LINK_NAME}.spdx.json"
     original_cve_check_file="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json"
-    new_cve_report_file="${DEPLOY_DIR_IMAGE}/enhance-cve-check.json"
+    new_cve_report_file="${DEPLOY_DIR_IMAGE}/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}-enhance${IMAGE_NAME_SUFFIX}.json"
     docker_compose_file="${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
     improve_kernel_cve_script=$(find ${VULNSCOUT_ROOT_DIR} -name "improve_kernel_cve_report.py")
 
@@ -164,10 +164,10 @@ do_enhance_cve_check_with_kernel_vulns() {
 
     # Replace the old cve report file in the docker-compose file by the new one
     bbplain "Configuring Vulnscout with the new cve report file..."
-    sed -i -E "s|^([[:space:]]*)-[[:space:]]*.*/yocto_cve_check/[^:]*\.json:ro,Z|\1- ${new_cve_report_file}:/scan/inputs/yocto_cve_check/enhance-cve-check.json:ro,Z|" "$docker_compose_file"
+    sed -i -E "s|^([[:space:]]*)-[[:space:]]*.*/yocto_cve_check/[^:]*\.json:ro,Z|\1- ${new_cve_report_file}:/scan/inputs/yocto_cve_check/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}-enhance${IMAGE_NAME_SUFFIX}.json:ro,Z|" "$docker_compose_file"
 }
 
-addtask enhance_cve_check_with_kernel_vulns after do_create_image_spdx before do_vulnscout
+addtask enhance_cve_check_with_kernel_vulns after do_create_image_spdx before do_create_image_sbom_spdx
 
 python do_vulnscout_ci() {
     import subprocess
