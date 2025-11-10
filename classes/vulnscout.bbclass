@@ -83,9 +83,9 @@ EOF
 
     # Test if we use SPDX 3.0 or SPDX 2.2
     if ${@bb.utils.contains('INHERIT', 'create-spdx', 'true', 'false', d)}; then
-        echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.json:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.json:ro,Z" >> "$compose_file"
+        echo "      - ${SPDXIMAGEDEPLOYDIR}/${IMAGE_LINK_NAME}.spdx.json:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.json:ro,Z" >> "$compose_file"
     elif ${@bb.utils.contains('INHERIT', 'create-spdx-2.2', 'true', 'false', d)}; then
-        echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.tar.zst:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.tar.zst:ro,Z" >> "$compose_file"
+        echo "      - ${SPDXIMAGEDEPLOYDIR}/${IMAGE_LINK_NAME}.spdx.tar.zst:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.tar.zst:ro,Z" >> "$compose_file"
     fi
     ${@bb.utils.contains('INHERIT', 'cyclonedx-export', 'echo "      - ${DEPLOY_DIR}/cyclonedx-export:/scan/inputs/cdx:ro" >> $compose_file', '', d)}
     echo "      - ${VULNSCOUT_DEPLOY_DIR}/output:/scan/outputs:Z" >> "$compose_file"
@@ -167,7 +167,8 @@ do_enhance_cve_check_with_kernel_vulns() {
     sed -i -E "s|^([[:space:]]*)-[[:space:]]*.*/yocto_cve_check/[^:]*\.json:ro,Z|\1- ${new_cve_report_file}:/scan/inputs/yocto_cve_check/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}-enhance${IMAGE_NAME_SUFFIX}.json:ro,Z|" "$docker_compose_file"
 }
 
-addtask enhance_cve_check_with_kernel_vulns after do_create_image_spdx before do_create_image_sbom_spdx
+do_enhance_cve_check_with_kernel_vulns[nostamp] = "1"
+addtask enhance_cve_check_with_kernel_vulns after do_create_image_sbom_spdx before do_build
 
 python do_vulnscout_ci() {
     import subprocess
@@ -201,7 +202,7 @@ python do_vulnscout_ci() {
 }
 
 do_vulnscout_ci[nostamp] = "1"
-addtask vulnscout_ci after do_setup_vulnscout
+addtask vulnscout_ci after do_enhance_cve_check_with_kernel_vulns
 
 python do_vulnscout() {
     import os
@@ -313,4 +314,4 @@ python do_vulnscout() {
 }
 
 do_vulnscout[nostamp] = "1"
-addtask vulnscout after do_image_complete
+addtask vulnscout after do_image_complete do_enhance_cve_check_with_kernel_vulns
