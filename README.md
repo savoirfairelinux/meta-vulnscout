@@ -130,9 +130,9 @@ Vulnscout web interface can still be run directly on the host with the ' docker-
 
 ## Using improve kernel cve script
 In the recent update of Whinlatter, a new script named "improve_kernel_cve_report.py" has been realesed.
-This script is better at finding CVEs then `cve-check` so it is now possible to use it with meta-vulnscount.
+This script is better at finding CVEs then `cve-check` so it is now used by default with meta-vulnscount.
 
-All you need to do is to set the variable `VULNSCOUT_KERNEL_IMPROVE_CVE` to true in the `vulnscout.bbclass` file.
+If you want to no use this script you only need to set `VULNSCOUT_KERNEL_IMPROVE_CVE` to `false` in the `vulnscout.bbclass` file.
 
 > [!WARNING]
 > To use this script, is it needed to clone this project https://git.kernel.org/pub/scm/linux/security/vulns.git/log/ which contain the vulnerabilities.
