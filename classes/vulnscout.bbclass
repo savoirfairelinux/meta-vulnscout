@@ -47,8 +47,7 @@ python do_clone_kernel_cve() {
             for f in os.listdir(srcdir):
                 shutil.move(os.path.join(srcdir, f), rootdir)
             shutil.rmtree(srcdir)
-        bb.plain("Vulnerabilities repo unpacked into: %s" % rootdir)
-
+        bb.note("Vulnerabilities repo unpacked into: %s" % rootdir)
     elif kernel_improve_cve == "false":
         bb.warn(f"Vulnscout: Kernel enhance CVEs desactivate. cve_check will be incomplete and will miss some vulnerabilities")
     elif "create-spdx-2.2" in check_spdx:
@@ -124,8 +123,8 @@ EOF
         echo "      - NVD_API_KEY=${NVDCVE_API_KEY}" >> "$compose_file"
     fi
 
-    bbplain "Vulnscout Succeed: Docker Compose file set at ${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
-    bbplain "Vulnscout Info: Start with the command 'docker-compose -f \"${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml\" up'"
+    bbplain "Vulnscout Setup Succeed: Docker Compose file set at ${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
+    bbplain "Vulnscout Info: After the build you can start web interface with the command 'docker-compose -f \"${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml\" up'"
 
     # Delete do_vulnscout_ci flag
     rm -f "${WORKDIR}/vulnscout_ci_was_run"
@@ -136,7 +135,7 @@ addtask setup_vulnscout after do_rootfs before do_image
 do_enhance_cve_check_with_kernel_vulns() {
     spdx_file="${SPDXIMAGEDEPLOYDIR}/${IMAGE_LINK_NAME}.spdx.json"
     original_cve_check_file="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json"
-    new_cve_report_file="${DEPLOY_DIR_IMAGE}/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}-enhance${IMAGE_NAME_SUFFIX}.json"
+    new_cve_report_file="${DEPLOY_DIR_IMAGE}/${IMAGE_NAME}.enhance.json"
     docker_compose_file="${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
     improve_kernel_cve_script=$(find ${VULNSCOUT_ROOT_DIR} -name "improve_kernel_cve_report.py")
 
@@ -155,16 +154,18 @@ do_enhance_cve_check_with_kernel_vulns() {
     fi
 
     #Launch the new script to improve the cve report
-    bbplain "Launching kernel improve cve report script..."
     python3 "${improve_kernel_cve_script}" \
         --spdx "${spdx_file}" \
         --old-cve-report "${original_cve_check_file}" \
         --new-cve-report "${new_cve_report_file}" \
         --datadir "${WORKDIR}/vulns"
+    bbplain "Improve CVE report with extra kernel cves: ${new_cve_report_file}"
+
+    #Create a symlink as every other JSON file in tmp/deploy/images
+    ln -sf ${DEPLOY_DIR_IMAGE}/${IMAGE_NAME}.enhance.json ${DEPLOY_DIR_IMAGE}/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}${IMAGE_NAME_SUFFIX}.enhance.json
 
     # Replace the old cve report file in the docker-compose file by the new one
-    bbplain "Configuring Vulnscout with the new cve report file..."
-    sed -i -E "s|^([[:space:]]*)-[[:space:]]*.*/yocto_cve_check/[^:]*\.json:ro,Z|\1- ${new_cve_report_file}:/scan/inputs/yocto_cve_check/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}-enhance${IMAGE_NAME_SUFFIX}.json:ro,Z|" "$docker_compose_file"
+    sed -i -E "s|^([[:space:]]*)-[[:space:]]*.*/yocto_cve_check/[^:]*\.json:ro,Z|\1- ${new_cve_report_file}:/scan/inputs/yocto_cve_check/${IMAGE_NAME}.enhance.json:ro,Z|" "$docker_compose_file"
 }
 
 do_enhance_cve_check_with_kernel_vulns[nostamp] = "1"
