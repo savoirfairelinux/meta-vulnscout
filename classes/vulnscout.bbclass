@@ -85,8 +85,8 @@ EOF
         echo "      - NVD_API_KEY=${NVDCVE_API_KEY}" >> "$compose_file"
     fi
 
-    bbplain "Vulnscout Succeed: Docker Compose file set at ${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
-    bbplain "Vulnscout Info: Start with the command 'docker-compose -f \"${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml\" up'"
+    bbplain "Vulnscout Setup Succeed: Docker Compose file set at ${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
+    bbplain "Vulnscout Info: After the build you can start web interface with the command 'docker-compose -f \"${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml\" up'"
 
     # Delete do_vulnscout_ci flag
     rm -f "${WORKDIR}/vulnscout_ci_was_run"
