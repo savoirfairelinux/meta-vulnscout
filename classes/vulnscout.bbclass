@@ -76,8 +76,8 @@ EOF
         echo "      - NVD_API_KEY=${NVDCVE_API_KEY}" >> "$compose_file"
     fi
 
-    bbplain "Vulnscout Succeed: Docker Compose file set at ${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
-    bbplain "Vulnscout Info: Start with the command 'docker-compose -f \"${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml\" up'"
+    bbplain "Vulnscout Setup Succeed: Docker Compose file set at ${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
+    bbplain "Vulnscout Info: After the build you can start web interface with the command 'docker-compose -f \"${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml\" up'"
 
     # Delete do_vulnscout_ci flag
     rm -f "${WORKDIR}/vulnscout_ci_was_run"
@@ -115,6 +115,8 @@ python do_vulnscout_ci() {
     # Call the do_vulnscout function
     bb.build.exec_func("do_vulnscout",d)
 }
+do_vulnscout_ci[nostamp] = "1"
+addtask vulnscout_ci after do_image_complete before do_vulnscout
 
 python do_vulnscout() {
     import os
@@ -225,7 +227,4 @@ python do_vulnscout() {
         bb.fatal(f"Failed to stop docker-compose: {e}")
 }
 do_vulnscout[nostamp] = "1"
-do_vulnscout_ci[nostamp] = "1"
-
 addtask vulnscout after do_image_complete
-addtask vulnscout_ci after do_setup_vulnscout
