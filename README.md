@@ -28,6 +28,22 @@ To enable and configure Vulnscout, you simply add `inherit vulnscout` in your im
 
 This project contains an example as described in `recipes-core/images/core-image-minimal.bbappend`.
 
+### Select the SPDX version to use
+
+In a recent update, Yocto Scarthgap now support the use of SPDX3 and so is meta-vulnscout.
+By default now meta-vulnscout will use the SPDX3 files.
+
+If you wish to continue to use the SPDX2.2 files you need to modify the `conf/layer.conf` file:
+Change the `INHERIT` variable and add a `INHERIT:remove`.
+
+```bash
+INHERIT += "create-spdx-2.2"
+INHERIT:remove = "create-spdx"
+```
+The next time you launch Vulnscout, it will use the SPDX2.2 files like it used to.
+
+Reverting these modifications will automatically change Vulnscout to use the SPDX3 files.
+
 ## Using VulnScout Web Interface
 
 After a normal build, you should see a new `.vulnscout` folder in `${TOPDIR}/..` (can be modified with variable `VULNSCOUT_ROOT_DIR`).
