@@ -56,6 +56,7 @@ python do_clone_kernel_cve() {
 
 do_clone_kernel_cve[network] = "1"
 do_clone_kernel_cve[nostamp] = "1"
+do_clone_kernel_cve[doc] = "Clone the latest kernel vulnerabilities from https://git.kernel.org/pub/scm/linux/security/vulns.git"
 addtask clone_kernel_cve after do_fetch before do_setup_vulnscout
 
 do_setup_vulnscout() {
@@ -129,7 +130,7 @@ EOF
     # Delete do_vulnscout_ci flag
     rm -f "${WORKDIR}/vulnscout_ci_was_run"
 }
-
+do_setup_vulnscout[doc] = "Configure the yaml file required to start VulnScout in VULNSCOUT_DEPLOY_DIR"
 addtask setup_vulnscout after do_rootfs before do_image
 
 do_enhance_cve_check_with_kernel_vulns() {
@@ -169,6 +170,7 @@ do_enhance_cve_check_with_kernel_vulns() {
 }
 
 do_enhance_cve_check_with_kernel_vulns[nostamp] = "1"
+do_enhance_cve_check_with_kernel_vulns[doc] = "Scout extra kernel vulnerabilities and create a new enhanced version of the cve_check file in the deploy directory"
 addtask enhance_cve_check_with_kernel_vulns after do_create_image_sbom_spdx before do_build
 
 python do_vulnscout_ci() {
@@ -203,6 +205,7 @@ python do_vulnscout_ci() {
 }
 
 do_vulnscout_ci[nostamp] = "1"
+do_vulnscout_ci[doc] = "Launch VulnScout in non-interactive mode. VULS_FAIL_CONDITION can be used to set a fail condition"
 addtask vulnscout_ci after do_enhance_cve_check_with_kernel_vulns
 
 python do_vulnscout() {
@@ -313,6 +316,6 @@ python do_vulnscout() {
     except subprocess.CalledProcessError as e:
         bb.fatal(f"Failed to stop docker-compose: {e}")
 }
-
 do_vulnscout[nostamp] = "1"
+do_vulnscout[doc] = "Open a new terminal and launch VulnScout web interface in a Docker container"
 addtask vulnscout after do_image_complete do_enhance_cve_check_with_kernel_vulns
