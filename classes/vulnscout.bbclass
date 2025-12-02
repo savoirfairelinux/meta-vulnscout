@@ -106,7 +106,7 @@ python do_vulnscout_ci() {
     subprocess.run(['sed', '-i', 's/INTERACTIVE_MODE=true/INTERACTIVE_MODE=false/g', compose_file])
 
     old_fail_condition = d.getVar("VULNSCOUT_ENV_FAIL_CONDITION")
-    new_fail_condition = d.getVar("VULS_FAIL_CONDITION",)
+    new_fail_condition = d.getVar("VULNSCOUT_FAIL_CONDITION",)
 
     # Chekc if there is a old_fail_condition set up and replace it by the new one
     if new_fail_condition:
@@ -126,7 +126,7 @@ python do_vulnscout_ci() {
     bb.build.exec_func("do_vulnscout",d)
 }
 do_vulnscout_ci[nostamp] = "1"
-do_vulnscout_ci[doc] = "Launch VulnScout in non-interactive mode. VULS_FAIL_CONDITION can be used to set a fail condition"
+do_vulnscout_ci[doc] = "Launch VulnScout in non-interactive mode. VULNSCOUT_FAIL_CONDITION can be used to set a fail condition"
 addtask vulnscout_ci after do_image_complete
 
 python do_vulnscout() {
@@ -143,7 +143,7 @@ python do_vulnscout() {
     log_path = d.getVar("T") + "/log.do_vulnscout_ci"
     output_vulnscout = d.getVar("VULNSCOUT_DEPLOY_DIR") + "/ouput/"
 
-    fail_condition = d.getVar("VULS_FAIL_CONDITION")
+    fail_condition = d.getVar("VULNSCOUT_FAIL_CONDITION")
 
     # If there is not a new_fail_condition one, check if there is a old one
     if not fail_condition:
