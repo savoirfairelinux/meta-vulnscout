@@ -4,7 +4,7 @@ VULNSCOUT_DEPLOY_DIR ?= "${VULNSCOUT_ROOT_DIR}/.vulnscout/${IMAGE_BASENAME}${IMA
 VULNSCOUT_CACHE_DIR ?= "${VULNSCOUT_ROOT_DIR}/.vulnscout/cache"
 
 # Repo and version of vulnscout to use
-VULNSCOUT_VERSION ?= "v0.9.0"
+VULNSCOUT_VERSION ?= "v0.9.1"
 VULNSCOUT_DOCKER_IMAGE ?= "sflinux/vulnscout"
 VULNSCOUT_GIT_URI ?= "https://github.com/savoirfairelinux/vulnscout.git"
 
@@ -92,7 +92,7 @@ EOF
     # Delete do_vulnscout_ci flag
     rm -f "${WORKDIR}/vulnscout_ci_was_run"
 }
-
+do_setup_vulnscout[doc] = "Configure the yaml file required to start VulnScout in VULNSCOUT_DEPLOY_DIR"
 addtask setup_vulnscout after do_rootfs before do_image
 
 python do_vulnscout_ci() {
@@ -126,6 +126,7 @@ python do_vulnscout_ci() {
     bb.build.exec_func("do_vulnscout",d)
 }
 do_vulnscout_ci[nostamp] = "1"
+do_vulnscout_ci[doc] = "Launch VulnScout in non-interactive mode. VULS_FAIL_CONDITION can be used to set a fail condition"
 addtask vulnscout_ci after do_image_complete
 
 python do_vulnscout() {
@@ -237,4 +238,5 @@ python do_vulnscout() {
         bb.fatal(f"Failed to stop docker-compose: {e}")
 }
 do_vulnscout[nostamp] = "1"
+do_vulnscout[doc] = "Open a new terminal and launch VulnScout web interface in a Docker container"
 addtask vulnscout after do_image_complete
