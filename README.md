@@ -128,6 +128,18 @@ cqfd run ./build.sh -- bitbake <your_Yocto_image> -c vulnscout
 If the container can't be configured (e.g., with kas-container).
 Vulnscout web interface can still be run directly on the host with the ' docker-compose` command.
 
+### Select the SPDX version to use
+
+Yocto now supports SPDX3 by default for SBOM generation.
+
+To use the old SPDX2.2 format, you can add the following configuration:
+
+```bash
+INHERIT:remove = "create-spdx"
+INHERIT += "create-spdx-2.2"
+```
+The next time you launch Vulnscout, it will generate an SBOM with the old SPDX2.2 format.
+
 ## Result
 
 ![Screenshot](doc/vulnscout-ui.png)
