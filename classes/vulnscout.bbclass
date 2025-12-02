@@ -49,9 +49,9 @@ python do_clone_kernel_cve() {
             shutil.rmtree(srcdir)
         bb.note("Vulnerabilities repo unpacked into: %s" % rootdir)
     elif kernel_improve_cve == "false":
-        bb.warn(f"Vulnscout: Kernel enhance CVEs desactivate. cve_check will be incomplete and will miss some vulnerabilities")
+        bb.warn(f"Vulnscout: Extra Kernel CVEs Scouting is desactivate because VULNSCOUT_KERNEL_IMPROVE_CVE is set to false.")
     elif "create-spdx-2.2" in check_spdx:
-        bb.warn(f"Vulnscout: Kernel enhance CVEs desactivate because SPDX 2.2 is used. cve_check will be incomplete and will miss some vulnerabilities")
+        bb.warn(f"Vulnscout: Extra Kernel CVEs Scouting is desactivate because incompatible with SPDX 2.2.")
 }
 
 do_clone_kernel_cve[network] = "1"
@@ -133,24 +133,24 @@ EOF
 do_setup_vulnscout[doc] = "Configure the yaml file required to start VulnScout in VULNSCOUT_DEPLOY_DIR"
 addtask setup_vulnscout after do_rootfs before do_image
 
-do_enhance_cve_check_with_kernel_vulns() {
+do_scout_extra_kernel_vulns() {
     spdx_file="${SPDXIMAGEDEPLOYDIR}/${IMAGE_LINK_NAME}.spdx.json"
     original_cve_check_file="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json"
-    new_cve_report_file="${DEPLOY_DIR_IMAGE}/${IMAGE_NAME}.enhance.json"
+    new_cve_report_file="${DEPLOY_DIR_IMAGE}/${IMAGE_NAME}.scouted.json"
     docker_compose_file="${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
     improve_kernel_cve_script=$(find ${VULNSCOUT_ROOT_DIR} -name "improve_kernel_cve_report.py")
 
     if [ "${VULNSCOUT_KERNEL_IMPROVE_CVE}" != "true" ]; then
-        bbwarn "Vulnscout: Skipping enhance cve_check with kernel vulnerabilities (VULNSCOUT_KERNEL_IMPROVE_CVE set to false)"
+        bbwarn "Vulnscout: Skipping extra kernel vulnerabilities scouting (VULNSCOUT_KERNEL_IMPROVE_CVE set to false)"
         return 0
     elif ${@bb.utils.contains('INHERIT', 'create-spdx-2.2', 'true', 'false', d)}; then
-        bbwarn "Vulnscout: Skipping enhance cve_check with kernel vulnerabilities because SPDX 2.2 is used."
+        bbwarn "Vulnscout: Skipping extra kernel vulnerabilities scouting because incompatible with SPDX 2."
         return 0
     elif [ ! -f "${spdx_file}" ]; then
-        bbwarn "Vulnscout: SPDX file not found: ${spdx_file}. Skipping enhance cve_check with kernel vulnerabilities."
+        bbwarn "Vulnscout: SPDX file not found: ${spdx_file}. Skipping extra kernel vulnerabilities scoutings."
         return 0
     elif [ ! -f "${original_cve_check_file}" ]; then
-        bbwarn "Vulnscout: CVE_CHECK file not found: ${original_cve_check_file}. Skipping enhance cve_check with kernel vulnerabilities."
+        bbwarn "Vulnscout: CVE_CHECK file not found: ${original_cve_check_file}. Skipping extra kernel vulnerabilities scouting."
         return 0
     fi
 
@@ -163,15 +163,15 @@ do_enhance_cve_check_with_kernel_vulns() {
     bbplain "Improve CVE report with extra kernel cves: ${new_cve_report_file}"
 
     #Create a symlink as every other JSON file in tmp/deploy/images
-    ln -sf ${DEPLOY_DIR_IMAGE}/${IMAGE_NAME}.enhance.json ${DEPLOY_DIR_IMAGE}/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}${IMAGE_NAME_SUFFIX}.enhance.json
+    ln -sf ${DEPLOY_DIR_IMAGE}/${IMAGE_NAME}.scouted.json ${DEPLOY_DIR_IMAGE}/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}${IMAGE_NAME_SUFFIX}.scouted.json
 
     # Replace the old cve report file in the docker-compose file by the new one
-    sed -i -E "s|^([[:space:]]*)-[[:space:]]*.*/yocto_cve_check/[^:]*\.json:ro,Z|\1- ${new_cve_report_file}:/scan/inputs/yocto_cve_check/${IMAGE_NAME}.enhance.json:ro,Z|" "$docker_compose_file"
+    sed -i -E "s|^([[:space:]]*)-[[:space:]]*.*/yocto_cve_check/[^:]*\.json:ro,Z|\1- ${new_cve_report_file}:/scan/inputs/yocto_cve_check/${IMAGE_NAME}.scouted.json:ro,Z|" "$docker_compose_file"
 }
 
-do_enhance_cve_check_with_kernel_vulns[nostamp] = "1"
-do_enhance_cve_check_with_kernel_vulns[doc] = "Scout extra kernel vulnerabilities and create a new enhanced version of the cve_check file in the deploy directory"
-addtask enhance_cve_check_with_kernel_vulns after do_create_image_sbom_spdx before do_build
+do_scout_extra_kernel_vulns[nostamp] = "1"
+do_scout_extra_kernel_vulns[doc] = "Scout extra kernel vulnerabilities and create a new enhanced version of the cve_check file in the deploy directory"
+addtask scout_extra_kernel_vulns after do_create_image_sbom_spdx before do_build
 
 python do_vulnscout_ci() {
     import subprocess
@@ -206,7 +206,7 @@ python do_vulnscout_ci() {
 
 do_vulnscout_ci[nostamp] = "1"
 do_vulnscout_ci[doc] = "Launch VulnScout in non-interactive mode. VULS_FAIL_CONDITION can be used to set a fail condition"
-addtask vulnscout_ci after do_enhance_cve_check_with_kernel_vulns
+addtask vulnscout_ci after do_scout_extra_kernel_vulns
 
 python do_vulnscout() {
     import os
@@ -318,4 +318,4 @@ python do_vulnscout() {
 }
 do_vulnscout[nostamp] = "1"
 do_vulnscout[doc] = "Open a new terminal and launch VulnScout web interface in a Docker container"
-addtask vulnscout after do_image_complete do_enhance_cve_check_with_kernel_vulns
+addtask vulnscout after do_image_complete do_scout_extra_kernel_vulns
