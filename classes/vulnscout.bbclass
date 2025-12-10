@@ -20,6 +20,16 @@ VULNSCOUT_ENV_IGNORE_PARSING_ERRORS ?= 'false'
 # Enable or disable the kernel CVE improve feature
 VULNSCOUT_KERNEL_IMPROVE_CVE ?= "true"
 
+python do_clean:append() {
+    import os, glob
+
+    if d.getVar('VULNSCOUT_KERNEL_IMPROVE_CVE') == "true" and bb.utils.contains('INHERIT', 'create-spdx-2.2', 'false', 'true', d):
+        deploy_dir = d.expand('${DEPLOY_DIR_IMAGE}')
+        for f in glob.glob(os.path.join(deploy_dir, '*scouted.json')):
+            bb.note("Removing " + f)
+            os.remove(f)
+}
+
 python do_clone_kernel_cve() {
     import subprocess
     import shutil, os
