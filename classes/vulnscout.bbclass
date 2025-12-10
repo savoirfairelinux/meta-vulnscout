@@ -126,7 +126,7 @@ python do_vulnscout_ci() {
 }
 do_vulnscout_ci[nostamp] = "1"
 do_vulnscout_ci[doc] = "Launch VulnScout in non-interactive mode. VULNSCOUT_FAIL_CONDITION can be used to set a fail condition"
-addtask vulnscout_ci after do_setup_vulnscout
+addtask vulnscout_ci after do_image_complete
 
 python do_vulnscout() {
     import os
