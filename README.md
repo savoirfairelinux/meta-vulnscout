@@ -48,6 +48,13 @@ INHERIT:remove = "create-spdx"
 The next time you launch Vulnscout, it will use SPDX3.
 
 Reverting these modifications will automatically make Vulnscout to use SPDX2.2 again.
+## Extra VulnScout configuration for cve-check improvements
+
+`meta-vulnscout` provides other classes for accurate cve-check file generation:
+
+-`vulnscout_kernel_cve_exclusions.bbclass` can be used to integrate the script `generate-cve-exclusions-py` (reference : https://docs.yoctoproject.org/dev/singleindex.html#generate-cve-exclusions-py).
+It provides extra kernel CVEs details and information through the variable `CVE_STATUS`.
+To integrate this script, a .bbappend on the kernel recipe should add `inherit vulnscout_kernel_cve_exclusions` as shown on the available example at meta-vulnscout/recipes-kernel/linux/linux-yocto_%.bbappend
 
 ## Using VulnScout Web Interface
 
