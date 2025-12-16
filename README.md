@@ -28,6 +28,18 @@ To enable and configure Vulnscout, you simply add `inherit vulnscout` in your im
 
 This project contains an example as described in `recipes-core/images/core-image-minimal.bbappend`.
 
+## Extra VulnScout configuration for cve-check improvements
+
+`meta-vulnscout` provides other classes for accurate cve-check file generation:
+
+-`vulnscout_kernel_cve_exclusions.bbclass` can be used to integrate the script `generate-cve-exclusions-py` (reference : https://docs.yoctoproject.org/dev/singleindex.html#generate-cve-exclusions-py).
+It provides extra kernel CVEs details and information through the variable `CVE_STATUS`.
+To integrate this script, a .bbappend on the kernel recipe should add `inherit vulnscout_kernel_cve_exclusions` as shown on the available example at meta-vulnscout/recipes-kernel/linux/linux-yocto_%.bbappend
+
+-`vulnscout_improve_kernel_cve_report.bbclass` can be used to integrate the script `improve_kernel_cve_report.py` (reference: https://docs.yoctoproject.org/dev/singleindex.html#improve-kernel-cve-report-py).
+It reduces CVE false positives by 70%-80% and provides detailed responses for all kernel-related CVEs by analyzing the files used to build the kernel.
+This .bbclass is used by default and generates .rootfs.scouted.json files in the deploy directory (it can be removed with the variable `VULNSCOUT_KERNEL_IMPROVE_CVE`).
+
 ## Using VulnScout Web Interface
 
 After a normal build, you should see a new `.vulnscout` folder in `${TOPDIR}/..` (can be modified with variable `VULNSCOUT_ROOT_DIR`).
