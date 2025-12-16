@@ -25,7 +25,7 @@ python do_clone_cvelistV5() {
 do_clone_cvelistV5[network] = "1"
 do_clone_cvelistV5[nostamp] = "1"
 do_clone_cvelistV5[doc] = "Clone CVE information from the CVE Project: https://github.com/CVEProject/cvelistV5.git"
-addtask clone_cvelistV5 after do_unpack before do_generate_cve_exclusions
+addtask clone_cvelistV5 after do_fetch before do_generate_cve_exclusions
 
 do_generate_cve_exclusions() {
     generate_cve_exclusions_script=$(find ${TOPDIR}/.. -name "generate-cve-exclusions.py")
@@ -35,7 +35,7 @@ do_generate_cve_exclusions() {
 }
 do_generate_cve_exclusions[nostamp] = "1"
 do_generate_cve_exclusions[doc] = "Generate CVE exclusions for the kernel build. (e.g., cve-exclusion_6.12.inc)"
-addtask generate_cve_exclusions after do_unpack
+addtask generate_cve_exclusions after do_clone_cvelistV5 before do_cve_check
 
 python do_cve_check:prepend() {
     import os
@@ -45,32 +45,20 @@ python do_cve_check:prepend() {
     kernel_version = d.getVar("LINUX_VERSION")
     inc_file = os.path.join(workdir, "cve-exclusion_%s.inc" % kernel_version)
 
-    if not os.path.exists(inc_file):
-        bb.warn("CVE exclusion file not found: %s" % inc_file)
-        return
+    if os.path.exists(inc_file):
+        bb.warn("CVE exclusion file found: %s" % inc_file)
+        pattern = re.compile(
+            r'^\s*CVE_STATUS\[(CVE-\d+-\d+)\]\s*=\s*"(.*?)"\s*(?:#.*)?$'
+        )
+        count = 0
+        with open(inc_file, 'r') as f:
+            for line in f:
+                m = pattern.match(line)
+                if not m:
+                    continue
 
-    pattern = re.compile(
-        r'^\s*CVE_STATUS\[(CVE-\d+-\d+)\]\s*=\s*"(.*?)"\s*(?:#.*)?$'
-    )
-
-    count = 0
-    with open(inc_file, 'r') as f:
-        for line in f:
-            m = pattern.match(line)
-            if not m:
-                continue
-
-            cve_id, status = m.groups()
-            d.setVarFlag("CVE_STATUS", cve_id, status)
-            count += 1
-
-    bb.note("Loaded %d CVE_STATUS entries from %s" % (count, inc_file))
-
-    test_cve = "CVE-2019-25160"
-    test_val = d.getVarFlag("CVE_STATUS", test_cve)
-
-    if test_val:
-        bb.warn("DEBUG: CVE_STATUS[%s] = %s" % (test_cve, test_val))
-    else:
-        bb.warn("DEBUG: CVE_STATUS[%s] NOT SET" % test_cve)
+                cve_id, status = m.groups()
+                d.setVarFlag("CVE_STATUS", cve_id, status)
+                count += 1
+        bb.note("Loaded %d CVE_STATUS entries from %s" % (count, inc_file))
 }
