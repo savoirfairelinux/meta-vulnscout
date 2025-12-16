@@ -28,7 +28,7 @@ do_clone_cvelistV5[doc] = "Clone CVE information from the CVE Project: https://g
 addtask clone_cvelistV5 after do_fetch before do_generate_cve_exclusions
 
 do_generate_cve_exclusions() {
-    generate_cve_exclusions_script=$(find ${TOPDIR}/.. -name "generate-cve-exclusions.py")
+    generate_cve_exclusions_script=$(find ${TOPDIR}/.. -name "generate-cve-exclusions-whinlatter.py")
     python3 "${generate_cve_exclusions_script}" \
         ${VULNSCOUT_CVELISTV5_PATH} \
         ${LINUX_VERSION} > ${VULNSCOUT_CVE_EXCLUSIONS_WORKDIR}/cve-exclusion_${LINUX_VERSION}.inc
