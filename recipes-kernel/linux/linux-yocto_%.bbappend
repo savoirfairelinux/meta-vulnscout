@@ -1,0 +1,1 @@
+inherit vulnscout_kernel_cve_exclusions
