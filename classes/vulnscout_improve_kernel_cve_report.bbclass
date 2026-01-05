@@ -55,7 +55,7 @@ do_scout_extra_kernel_vulns() {
     original_cve_check_file="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json"
     new_cve_report_file="${DEPLOY_DIR_IMAGE}/${IMAGE_NAME}.scouted.json"
     docker_compose_file="${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
-    improve_kernel_cve_script=$(find ${VULNSCOUT_ROOT_DIR} -name "improve_kernel_cve_report.py")
+    improve_kernel_cve_script=$(find ${COREBASE} -name "improve_kernel_cve_report.py")
 
     if [ "${VULNSCOUT_KERNEL_IMPROVE_CVE}" != "true" ]; then
         bbwarn "Vulnscout: Skipping extra kernel vulnerabilities scouting (VULNSCOUT_KERNEL_IMPROVE_CVE set to false)"
