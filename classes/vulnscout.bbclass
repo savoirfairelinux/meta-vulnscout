@@ -48,7 +48,7 @@ EOF
         echo "      - ${SPDXIMAGEDEPLOYDIR}/${IMAGE_LINK_NAME}.spdx.tar.zst:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.tar.zst:ro,Z" >> "$compose_file"
     fi
     ${@bb.utils.contains('INHERIT', 'cyclonedx-export', 'echo "      - ${DEPLOY_DIR}/cyclonedx-export:/scan/inputs/cdx:ro" >> $compose_file', '', d)}
-    echo "      - ${VULNSCOUT_DEPLOY_DIR}/output:/scan/outputs:Z" >> "$compose_file"
+    echo "      - ${VULNSCOUT_DEPLOY_DIR}/state:/scan/outputs:Z" >> "$compose_file"
     echo "      - ${VULNSCOUT_CACHE_DIR}:/cache/vulnscout:Z" >> "$compose_file"
 
     # Add environnement variables
