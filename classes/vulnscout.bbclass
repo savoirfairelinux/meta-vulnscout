@@ -17,8 +17,6 @@ VULNSCOUT_ENV_FLASK_RUN_HOST ?= "0.0.0.0"
 VULNSCOUT_ENV_GENERATE_DOCUMENTS ?= "summary.adoc,time_estimates.csv"
 VULNSCOUT_ENV_IGNORE_PARSING_ERRORS ?= 'false'
 
-inherit vulnscout_improve_kernel_cve_report
-
 do_setup_vulnscout() {
     # Create a output directory for vulnscout configuration
     mkdir -p ${VULNSCOUT_DEPLOY_DIR}
