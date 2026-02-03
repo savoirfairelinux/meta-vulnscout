@@ -239,3 +239,29 @@ python do_vulnscout() {
 do_vulnscout[nostamp] = "1"
 do_vulnscout[doc] = "Open a new terminal and launch VulnScout web interface in a Docker container"
 addtask vulnscout after do_image_complete
+
+python do_vulnscout_no_scan(){
+    import os
+    cve_check_path = os.path.join(d.getVar("DEPLOY_DIR_IMAGE"), f"{d.getVar('IMAGE_LINK_NAME')}.json")
+    inherit_var = d.getVar('INHERIT') or ''
+    spdx_3_path = os.path.join(d.getVar("SPDXIMAGEDEPLOYDIR"), f"{d.getVar('IMAGE_LINK_NAME')}.spdx.json")
+    spdx_2_path = os.path.join(d.getVar("SPDXIMAGEDEPLOYDIR"), f"{d.getVar('IMAGE_LINK_NAME')}.spdx.tar.zst")
+
+    # Check the CVE-Check already exist
+    if not os.path.exists(cve_check_path):
+        bb.fatal(f"CVE-Check file not found at {cve_check_path}. Please enable 'cve-check' in INHERIT to generate it and rebuild the image.")
+
+    # Check the SPDX-2.2 or SPDX-3.0 files already exist based on INHERIT
+    if 'create-spdx-2.2' in inherit_var:
+        if not os.path.exists(spdx_2_path):
+            bb.fatal(f"SPDX-2.2 file not found at {spdx_2_path}. Please enable 'create-spdx-2.2' in INHERIT to generate it and rebuild the image.")
+    elif 'create-spdx' in inherit_var:
+        if not os.path.exists(spdx_3_path):
+            bb.fatal(f"SPDX-3.0 file not found at {spdx_3_path}. Please enable 'create-spdx' in INHERIT to generate it and rebuild the image.")
+
+    # Call the setup vulnscout to start the docker container
+    bb.build.exec_func("do_vulnscout",d)
+}
+do_vulnscout_no_scan[nostamp] = "1"
+do_vulnscout_no_scan[doc] = "Open a new terminal and launch VulnScout web interface in a Docker container without scanning the image"
+addtask vulnscout_no_scan
