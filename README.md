@@ -51,6 +51,12 @@ The scan and analysis of vulnerabilities can start with the yocto command:
 bitbake core-image-minimal -c vulnscout
 ```
 
+VulnScout Docker container can also be started without rescanning for new CVEs with the following command:
+
+```shell
+bitbake core-image-minimal -c do_vulnscout_no_scan
+```
+
 Or you can do it manually with the command:
 
 ```shell
