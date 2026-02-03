@@ -242,10 +242,14 @@ addtask vulnscout after do_image_complete
 
 python do_vulnscout_no_scan(){
     import os
-    cve_check_path = os.path.join(d.getVar("DEPLOY_DIR_IMAGE"), f"{d.getVar('IMAGE_LINK_NAME')}.json")
+
+    deploy_dir = d.getVar("DEPLOY_DIR_IMAGE")
+    image_name = d.getVar("IMAGE_LINK_NAME")
     inherit_var = d.getVar('INHERIT') or ''
-    spdx_3_path = os.path.join(d.getVar("SPDXIMAGEDEPLOYDIR"), f"{d.getVar('IMAGE_LINK_NAME')}.spdx.json")
-    spdx_2_path = os.path.join(d.getVar("SPDXIMAGEDEPLOYDIR"), f"{d.getVar('IMAGE_LINK_NAME')}.spdx.tar.zst")
+
+    spdx_3_path = os.path.join(deploy_dir, f"{image_name}.spdx.json")
+    spdx_2_path = os.path.join(deploy_dir, f"{image_name}.spdx.tar.zst")
+    cve_check_path = os.path.join(deploy_dir, f"{image_name}.json")
 
     # Check the CVE-Check already exist
     if not os.path.exists(cve_check_path):
