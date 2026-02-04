@@ -37,7 +37,13 @@ services:
 EOF
 
     # Adding volumes to the docker-compose yml file
-    ${@bb.utils.contains('INHERIT', 'cve-check', 'echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json:/scan/inputs/yocto_cve_check/${IMAGE_LINK_NAME}.json:ro,Z" >> $compose_file', '', d)}
+    if ${@bb.utils.contains('INHERIT', 'cve-check', 'true', 'false', d)}; then
+        if ${@'true' if d.getVarFlag('do_scout_extra_kernel_vulns', 'task') else 'false'}; then
+            echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.scouted.json:/scan/inputs/yocto_cve_check/${IMAGE_LINK_NAME}.json:ro,Z" >> "$compose_file"
+        else
+            echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json:/scan/inputs/yocto_cve_check/${IMAGE_LINK_NAME}.json:ro,Z" >> "$compose_file"
+        fi
+    fi
 
     # Test if we use SPDX 3.* or SPDX 2.2 and older versions
     case "${SPDX_VERSION}" in
@@ -239,7 +245,7 @@ python do_vulnscout() {
 }
 do_vulnscout[nostamp] = "1"
 do_vulnscout[doc] = "Open a new terminal and launch VulnScout web interface in a Docker container"
-addtask vulnscout after do_image_complete
+addtask vulnscout after do_scout_extra_kernel_vulns do_image_complete
 
 python do_vulnscout_no_scan(){
     import os
