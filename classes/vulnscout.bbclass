@@ -37,7 +37,13 @@ services:
 EOF
 
     # Adding volumes to the docker-compose yml file
-    ${@bb.utils.contains('INHERIT', 'cve-check', 'echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json:/scan/inputs/yocto_cve_check/${IMAGE_LINK_NAME}.json:ro,Z" >> $compose_file', '', d)}
+    if ${@bb.utils.contains('INHERIT', 'cve-check', 'true', 'false', d)}; then
+        if ${@'true' if d.getVarFlag('do_scout_extra_kernel_vulns', 'task') else 'false'}; then
+            echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.scouted.json:/scan/inputs/yocto_cve_check/${IMAGE_LINK_NAME}.json:ro,Z" >> "$compose_file"
+        else
+            echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json:/scan/inputs/yocto_cve_check/${IMAGE_LINK_NAME}.json:ro,Z" >> "$compose_file"
+        fi
+    fi
 
     # Test if we use SPDX 3.0 or SPDX 2.2
     if ${@bb.utils.contains('INHERIT', 'create-spdx', 'true', 'false', d)}; then
