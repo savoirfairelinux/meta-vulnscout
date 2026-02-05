@@ -133,7 +133,7 @@ python do_vulnscout_ci() {
 }
 do_vulnscout_ci[nostamp] = "1"
 do_vulnscout_ci[doc] = "Launch VulnScout in non-interactive mode. VULNSCOUT_FAIL_CONDITION can be used to set a fail condition"
-addtask vulnscout_ci after do_image_complete
+addtask vulnscout_ci after do_scout_extra_kernel_vulns do_image_complete
 
 python do_vulnscout() {
     import os
@@ -257,10 +257,15 @@ python do_vulnscout_no_scan(){
     spdx_3_path = os.path.join(deploy_dir, f"{image_name}.spdx.json")
     spdx_2_path = os.path.join(deploy_dir, f"{image_name}.spdx.tar.zst")
     cve_check_path = os.path.join(deploy_dir, f"{image_name}.json")
+    scouted_cve_check_path = os.path.join(deploy_dir, f"{image_name}.scouted.json")
 
     # Check the CVE-Check already exist
-    if not os.path.exists(cve_check_path):
-        bb.fatal(f"CVE-Check file not found at {cve_check_path}. Please enable 'cve-check' in INHERIT to generate it and rebuild the image.")
+    if d.getVarFlag('do_scout_extra_kernel_vulns', 'task'):
+        if not os.path.exists(scouted_cve_check_path):
+            bb.fatal(f"Scouted CVE-Check file not found at {scouted_cve_check_path}. Please rebuild the image.")
+    else:
+        if not os.path.exists(cve_check_path):
+            bb.fatal(f"CVE-Check file not found at {cve_check_path}. Please enable 'cve-check' in INHERIT to generate it and rebuild the image.")
 
     # Check the SPDX-2.2 or SPDX-3.0 files already exist based on INHERIT
     if 'create-spdx-3.0' in inherit_var:
