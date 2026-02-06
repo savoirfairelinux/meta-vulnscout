@@ -44,14 +44,15 @@ This project contains an example as described in `recipes-core/images/core-image
 It provides extra kernel CVE details and information through the variable `CVE_STATUS`. \
 To integrate this script, a .bbappend on the kernel recipe can be used to add `inherit kernel-generate-cve-exclusions` as shown on the available example at meta-vulnscout/recipes-kernel/linux/linux-yocto_%.bbappend
 
-> [!WARNING]
-> By default, the bbclass `kernel-generate-cve-exclusions.bbclass` requires locating meta-vulnscout next to `poky` or `openembedded-core` folder to find the python script correctly.
-This behaviour can be modified with the variable `SCRIPT_FOLDER` defined in `meta-vulnscout/conf/layer.conf`.
-
 -`improve_kernel_cve_report.bbclass` can be used to integrate the script `improve_kernel_cve_report.py` (reference : [improve_kernel_cve_report](https://docs.yoctoproject.org/dev/singleindex.html#improve-kernel-cve-report-py)). \
 It reduces CVE false positives by 70%-80% and provides detailed responses for all kernel-related CVEs by analyzing the files used to build the kernel. \
 To integrate this script, a .bbappend on the image recipe can be used to add `inherit improve_kernel_cve_report` as shown on the available example at meta-vulnscout/recipes-core/images/core-image-minimal.bbappend. \
 If your project is based on SPDX-2.2, the class `improve_kernel_cve_report-spdx-2.2` will have to be inherit instead of `improve_kernel_cve_report`.
+
+-`kernel-filter-nonbuilt-cves.bbclass` can be used to generate kernel CVE reports, which sort exploitable/unexploitable vulnerabilities based on your defconfig. A CVE linked with a driver that isn't compiled doesn't make your kernel vulnerable to it. \
+It reduces the amount of kernel CVEs to deal with by around 70%, depending on your defconfig. \
+To integrate this class, a simple `inherit kernel-filter-nonbuilt-cves` is required in the kernel recipe. After a kernel build tree, new files will be located in your deploy directory. A file with `.kernel_remaining_cves.json` extension will contain the remaining active cves, a second file with `.kernel_removed_cves.json` contains the details of CVEs that don't apply to your system. \
+Also, the virtual kernel cve-check file will be affected and the final cve-check manifest will be affected by this class analysis setting all nonbuilt CVEs to `Ignored` status with `details` set to `cve-not-compiled-in-kernel` and `description` to `kernel_filter_nonbuilt_cves detected that this CVE is not affecting the current kernel build.`.
 
 ## Using VulnScout Web Interface
 
