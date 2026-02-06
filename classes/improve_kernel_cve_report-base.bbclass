@@ -26,7 +26,7 @@ python do_clean:append() {
 
 do_scout_extra_kernel_vulns() {
     new_cve_report_file="${DEPLOY_DIR_IMAGE}/${IMAGE_NAME}.scouted.json"
-    improve_kernel_cve_script="${COREBASE}/../meta-vulnscout/scripts/improve_kernel_cve_report.py"
+    improve_kernel_cve_script="${SCRIPT_FOLDER}/improve_kernel_cve_report.py"
 
     # Check that IMPROVE_KERNEL_SPDX_FILE is set and the file exists
     if [ -z "${IMPROVE_KERNEL_SPDX_FILE}" ] || [ ! -f "${IMPROVE_KERNEL_SPDX_FILE}" ]; then
