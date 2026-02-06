@@ -61,8 +61,13 @@ It reduces CVE false positives by 70%-80% and provides detailed responses for al
 To integrate this script, a .bbappend on the image recipe can be used to add `inherit improve_kernel_cve_report` as shown on the available example at meta-vulnscout/recipes-core/images/core-image-minimal.bbappend. \
 If your project is based on SPDX-3.0, the class `improve_kernel_cve_report-spdx-3.0` will have to be inherit instead of `improve_kernel_cve_report`.
 
+-`kernel-filter-nonbuilt-cves.bbclass` can be used to generate kernel CVE reports, which sort exploitable/unexploitable vulnerabilities based on your defconfig. A CVE linked with a driver that isn't compiled doesn't make your kernel vulnerable to it. \
+It reduces the amount of kernel CVEs to deal with by around 70%, depending on your defconfig. \
+To integrate this class, a simple `inherit kernel-filter-nonbuilt-cves` is required in the kernel recipe. After a kernel build tree, new files will be located in your deploy directory. A file with `.kernel_remaining_cves.json` extension will contain the remaining active cves, a second file with `.kernel_removed_cves.json` contains the details of CVEs that don't apply to your system. \
+Also, the virtual kernel cve-check file will be affected and the final cve-check manifest will be affected by this class analysis setting all nonbuilt CVEs to `Ignored` status with `details` set to `cve-not-compiled-in-kernel` and `description` to `kernel_filter_nonbuilt_cves detected that this CVE is not affecting the current kernel build.`.
+
 > [!WARNING]
-> By default, the classes `kernel-generate-cve-exclusions.bbclass`, and `improve_kernel_cve_report.bbclass` require locating meta-vulnscout next to `poky` or `openembedded-core` folder to find the python script correctly.
+> By default, the classes `kernel-generate-cve-exclusions.bbclass`, `improve_kernel_cve_report.bbclass`, and `kernel-filter-nonbuilt-cves.bbclass` require locating meta-vulnscout next to `poky` or `openembedded-core` folder to find the python script correctly.
 This behaviour can be modified with the variable `SCRIPT_FOLDER` defined in `meta-vulnscout/conf/layer.conf`.
 
 ## Using VulnScout Web Interface
