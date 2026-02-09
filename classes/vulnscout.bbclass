@@ -18,6 +18,7 @@ VULNSCOUT_ENV_FLASK_RUN_PORT ?= "7275"
 VULNSCOUT_ENV_FLASK_RUN_HOST ?= "0.0.0.0"
 VULNSCOUT_ENV_GENERATE_DOCUMENTS ?= "summary.adoc,time_estimates.csv"
 VULNSCOUT_ENV_IGNORE_PARSING_ERRORS ?= 'false'
+VULNSCOUT_ENV_CVE_CHECK_EXCLUDE_PATCHED ?= "false"
 
 # Helper function to check if Vulnscout required files are present on the host
 check_vulnscout_requirements() {
@@ -127,6 +128,9 @@ EOF
     fi
     if [ -n "${VULNSCOUT_ENV_DOCUMENT_URL}" ]; then
         echo "      - DOCUMENT_URL=${VULNSCOUT_ENV_DOCUMENT_URL}" >> "${VULNSCOUT_COMPOSE_FILE}"
+    fi
+    if [ -n "${VULNSCOUT_ENV_CVE_CHECK_EXCLUDE_PATCHED}" ]; then
+        echo "      - CVE_CHECK_EXCLUDE_PATCHED=${VULNSCOUT_ENV_CVE_CHECK_EXCLUDE_PATCHED}" >> "${VULNSCOUT_COMPOSE_FILE}"
     fi
     if [ -n "${NVDCVE_API_KEY}" ]; then
         echo "      - NVD_API_KEY=${NVDCVE_API_KEY}" >> "${VULNSCOUT_COMPOSE_FILE}"
