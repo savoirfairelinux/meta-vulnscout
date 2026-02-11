@@ -131,6 +131,10 @@ EOF
     if [ -n "${NVDCVE_API_KEY}" ]; then
         echo "      - NVD_API_KEY=${NVDCVE_API_KEY}" >> "${VULNSCOUT_COMPOSE_FILE}"
     fi
+    if [ -n "$(id -u)" ] && [ -n "$(id -g)" ]; then
+        echo "      - USER_UID=$(id -u)" >> "${VULNSCOUT_COMPOSE_FILE}"
+        echo "      - USER_GID=$(id -g)" >> "${VULNSCOUT_COMPOSE_FILE}"
+    fi
 
     bbplain "Vulnscout Setup Succeed: Docker Compose file set at ${VULNSCOUT_COMPOSE_FILE}"
     bbplain "Vulnscout Info: After the build you can start web interface with the command 'docker-compose -f ${VULNSCOUT_COMPOSE_FILE} up'"
