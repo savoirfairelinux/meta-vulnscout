@@ -74,21 +74,26 @@ EOF
     # Adding volumes to the docker-compose yml file
     if ${@bb.utils.contains('INHERIT', 'cve-check', 'true', 'false', d)}; then
         if ${@'true' if d.getVarFlag('do_scout_extra_kernel_vulns', 'task') else 'false'}; then
-            echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.scouted.json:/scan/inputs/yocto_cve_check/${IMAGE_LINK_NAME}.json:ro,Z" >> "${VULNSCOUT_COMPOSE_FILE}"
+            CVE_CHECK_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.scouted.json"
         else
-            echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json:/scan/inputs/yocto_cve_check/${IMAGE_LINK_NAME}.json:ro,Z" >> "${VULNSCOUT_COMPOSE_FILE}"
+            CVE_CHECK_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json"
         fi
+        CVE_CHECK_RELATIVE_PATH="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${CVE_CHECK_PATH}")"
+        echo "      - ${CVE_CHECK_RELATIVE_PATH}:/scan/inputs/yocto_cve_check/${IMAGE_LINK_NAME}.json:ro,Z" >> "${VULNSCOUT_COMPOSE_FILE}"
     fi
 
     # Test if we use SPDX 3.0 or SPDX 2.2
     if ${@bb.utils.contains('INHERIT', 'create-spdx', 'true', 'false', d)}; then
-        echo "      - ${SPDXIMAGEDEPLOYDIR}/${IMAGE_LINK_NAME}.spdx.json:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.json:ro,Z" >> "${VULNSCOUT_COMPOSE_FILE}"
+        SPDX_RELATIVE_PATH="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${SPDXIMAGEDEPLOYDIR}/${IMAGE_LINK_NAME}.spdx.json")"
+        echo "      - ${SPDX_RELATIVE_PATH}:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.json:ro,Z" >> "${VULNSCOUT_COMPOSE_FILE}"
     elif ${@bb.utils.contains('INHERIT', 'create-spdx-2.2', 'true', 'false', d)}; then
-        echo "      - ${SPDXIMAGEDEPLOYDIR}/${IMAGE_LINK_NAME}.spdx.tar.zst:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.tar.zst:ro,Z" >> "${VULNSCOUT_COMPOSE_FILE}"
+        SPDX_RELATIVE_PATH="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${SPDXIMAGEDEPLOYDIR}/${IMAGE_LINK_NAME}.spdx.tar.zst")"
+        echo "      - ${SPDX_RELATIVE_PATH}:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.tar.zst:ro,Z" >> "${VULNSCOUT_COMPOSE_FILE}"
     fi
-    ${@bb.utils.contains('INHERIT', 'cyclonedx-export', 'echo "      - ${DEPLOY_DIR}/cyclonedx-export:/scan/inputs/cdx:ro" >> $compose_file', '', d)}
-    echo "      - ${VULNSCOUT_DEPLOY_DIR}/output:/scan/outputs:Z" >> "${VULNSCOUT_COMPOSE_FILE}"
-    echo "      - ${VULNSCOUT_CACHE_DIR}:/cache/vulnscout:Z" >> "${VULNSCOUT_COMPOSE_FILE}"
+    ${@bb.utils.contains('INHERIT', 'cyclonedx-export', 'echo "      - $(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${DEPLOY_DIR}/cyclonedx-export"):/scan/inputs/cdx:ro" >> ${VULNSCOUT_COMPOSE_FILE}', '', d)}
+    VULNSCOUT_CACHE_DIR_RELATIVE="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${VULNSCOUT_CACHE_DIR}")"
+    echo "      - ./output:/scan/outputs:Z" >> "${VULNSCOUT_COMPOSE_FILE}"
+    echo "      - ${VULNSCOUT_CACHE_DIR_RELATIVE}:/cache/vulnscout:Z" >> "${VULNSCOUT_COMPOSE_FILE}"
 
     # Add environnement variables
     cat >> ${VULNSCOUT_COMPOSE_FILE} <<EOF
