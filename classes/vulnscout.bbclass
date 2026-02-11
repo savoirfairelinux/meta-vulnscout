@@ -1,7 +1,8 @@
 # Vulnscout class variables for Yocto Project
 VULNSCOUT_ROOT_DIR ?= "${TOPDIR}/.."
-VULNSCOUT_DEPLOY_DIR ?= "${VULNSCOUT_ROOT_DIR}/.vulnscout/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}"
-VULNSCOUT_CACHE_DIR ?= "${VULNSCOUT_ROOT_DIR}/.vulnscout/cache"
+VULNSCOUT_BASE_DIR ?= "${VULNSCOUT_ROOT_DIR}/.vulnscout"
+VULNSCOUT_DEPLOY_DIR ?= "${VULNSCOUT_BASE_DIR}/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}"
+VULNSCOUT_CACHE_DIR ?= "${VULNSCOUT_BASE_DIR}/cache"
 VULNSCOUT_COMPOSE_FILE ?= "${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
 
 # Repo and version of vulnscout to use
@@ -21,6 +22,12 @@ VULNSCOUT_ENV_IGNORE_PARSING_ERRORS ?= 'false'
 do_setup_vulnscout() {
     # Create a output directory for vulnscout configuration
     mkdir -p ${VULNSCOUT_DEPLOY_DIR}
+
+    if [ ! -e "${VULNSCOUT_BASE_DIR}/.gitignore" ]; then
+        cat > "${VULNSCOUT_BASE_DIR}/.gitignore" <<EOF
+cache/
+EOF
+    fi
 
     # Add Header section
     cat > ${VULNSCOUT_COMPOSE_FILE} <<EOF
