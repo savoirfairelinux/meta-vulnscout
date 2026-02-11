@@ -147,7 +147,7 @@ python do_vulnscout() {
     compose_file = d.getVar("VULNSCOUT_DEPLOY_DIR") + "/docker-compose.yml"
     compose_cmd = ""
     log_path = d.getVar("T") + "/log.do_vulnscout_ci"
-    output_vulnscout = d.getVar("VULNSCOUT_DEPLOY_DIR") + "/ouput/"
+    output_vulnscout = d.getVar("VULNSCOUT_DEPLOY_DIR") + "/output/"
 
     fail_condition = d.getVar("VULNSCOUT_FAIL_CONDITION")
 
