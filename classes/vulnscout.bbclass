@@ -19,7 +19,37 @@ VULNSCOUT_ENV_FLASK_RUN_HOST ?= "0.0.0.0"
 VULNSCOUT_ENV_GENERATE_DOCUMENTS ?= "summary.adoc,time_estimates.csv"
 VULNSCOUT_ENV_IGNORE_PARSING_ERRORS ?= 'false'
 
+# Helper function to check if Vulnscout required files are present on the host
+check_vulnscout_requirements() {
+    SPDX_3_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.json"
+    SPDX_2_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.tar.zst"
+    CVE_CHECK_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json"
+    SCOUTED_CVE_CHECK_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.scouted.json"
+
+    # Check the CVE-Check already exist
+    if ${@'true' if d.getVarFlag('do_scout_extra_kernel_vulns', 'task') else 'false'}; then
+        if [ ! -e "${SCOUTED_CVE_CHECK_PATH}" ]; then
+            bbfatal "Scouted CVE-Check file not found at ${SCOUTED_CVE_CHECK_PATH}. Please rebuild the image."
+        fi
+    elif [ ! -e "${CVE_CHECK_PATH}" ]; then
+        bbfatal "CVE-Check file not found at ${CVE_CHECK_PATH}. Please enable 'cve-check' in INHERIT to generate it and rebuild the image."
+    fi
+
+    # Check the SPDX-2.2 or SPDX-3.0 files already exist based on INHERIT
+    if ${@bb.utils.contains('INHERIT', 'create-spdx-2.0', 'true', 'false', d)}; then
+        if [ ! -e "${SPDX_2_PATH}" ]; then
+            bbfatal "SPDX-2.2 file not found at ${SPDX_2_PATH}. Please enable 'create-spdx-2.2' in INHERIT to generate it and rebuild the image."
+        fi
+    elif ${@bb.utils.contains('INHERIT', 'create-spdx', 'true', 'false', d)}; then
+        if [ ! -e "${SPDX_3_PATH}" ]; then
+            bbfatal "SPDX-3.0 file not found at ${SPDX_3_PATH}. Please enable 'create-spdx' in INHERIT to generate it and rebuild the image."
+        fi
+    fi
+}
+
 do_setup_vulnscout() {
+    check_vulnscout_requirements
+
     # Create a output directory for vulnscout configuration
     mkdir -p ${VULNSCOUT_DEPLOY_DIR}
 
@@ -265,34 +295,10 @@ do_vulnscout[doc] = "Open a new terminal and launch VulnScout web interface in a
 addtask vulnscout after do_setup_vulnscout
 
 python do_vulnscout_no_scan(){
-    import os
-
-    deploy_dir = d.getVar("DEPLOY_DIR_IMAGE")
-    image_name = d.getVar("IMAGE_LINK_NAME")
-    inherit_var = d.getVar('INHERIT') or ''
-
-    spdx_3_path = os.path.join(deploy_dir, f"{image_name}.spdx.json")
-    spdx_2_path = os.path.join(deploy_dir, f"{image_name}.spdx.tar.zst")
-    cve_check_path = os.path.join(deploy_dir, f"{image_name}.json")
-    scouted_cve_check_path = os.path.join(deploy_dir, f"{image_name}.scouted.json")
-
-    # Check the CVE-Check already exist
-    if d.getVarFlag('do_scout_extra_kernel_vulns', 'task'):
-        if not os.path.exists(scouted_cve_check_path):
-            bb.fatal(f"Scouted CVE-Check file not found at {scouted_cve_check_path}. Please rebuild the image.")
-    else:
-        if not os.path.exists(cve_check_path):
-            bb.fatal(f"CVE-Check file not found at {cve_check_path}. Please enable 'cve-check' in INHERIT to generate it and rebuild the image.")
-
-    # Check the SPDX-2.2 or SPDX-3.0 files already exist based on INHERIT
-    if 'create-spdx-2.2' in inherit_var:
-        if not os.path.exists(spdx_2_path):
-            bb.fatal(f"SPDX-2.2 file not found at {spdx_2_path}. Please enable 'create-spdx-2.2' in INHERIT to generate it and rebuild the image.")
-    elif 'create-spdx' in inherit_var:
-        if not os.path.exists(spdx_3_path):
-            bb.fatal(f"SPDX-3.0 file not found at {spdx_3_path}. Please enable 'create-spdx' in INHERIT to generate it and rebuild the image.")
-
-    # Call the setup vulnscout to start the docker container
+    # Call the check_vulnscout_requirements function to check requirements
+    # before launching vulnscout
+    bb.build.exec_func("check_vulnscout_requirements",d)
+    # Call the vulnscout task to start the docker container
     bb.build.exec_func("do_vulnscout",d)
 }
 do_vulnscout_no_scan[nostamp] = "1"
