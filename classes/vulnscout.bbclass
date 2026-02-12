@@ -97,7 +97,7 @@ EOF
     bbplain "Vulnscout Info: After the build you can start web interface with the command 'docker-compose -f ${VULNSCOUT_COMPOSE_FILE} up'"
 }
 do_setup_vulnscout[doc] = "Configure the yaml file required to start VulnScout in VULNSCOUT_DEPLOY_DIR"
-addtask setup_vulnscout after do_rootfs before do_image
+addtask setup_vulnscout after do_scout_extra_kernel_vulns do_image_complete before do_build
 
 python clear_vulnscout_container() {
     import os
@@ -232,7 +232,7 @@ python do_vulnscout_ci() {
 }
 do_vulnscout_ci[nostamp] = "1"
 do_vulnscout_ci[doc] = "Launch VulnScout in non-interactive mode. VULNSCOUT_FAIL_CONDITION can be used to set a fail condition"
-addtask vulnscout_ci after do_scout_extra_kernel_vulns do_image_complete
+addtask vulnscout_ci after do_setup_vulnscout
 
 python do_vulnscout() {
     import os
@@ -262,7 +262,7 @@ python do_vulnscout() {
 }
 do_vulnscout[nostamp] = "1"
 do_vulnscout[doc] = "Open a new terminal and launch VulnScout web interface in a Docker container"
-addtask vulnscout after do_scout_extra_kernel_vulns do_image_complete
+addtask vulnscout after do_setup_vulnscout
 
 python do_vulnscout_no_scan(){
     import os
