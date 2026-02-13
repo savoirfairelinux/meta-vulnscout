@@ -1,7 +1,8 @@
 # Vulnscout class variables for Yocto Project
 VULNSCOUT_ROOT_DIR ?= "${TOPDIR}/.."
-VULNSCOUT_DEPLOY_DIR ?= "${VULNSCOUT_ROOT_DIR}/.vulnscout/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}"
-VULNSCOUT_CACHE_DIR ?= "${VULNSCOUT_ROOT_DIR}/.vulnscout/cache"
+VULNSCOUT_BASE_DIR ?= "${VULNSCOUT_ROOT_DIR}/.vulnscout"
+VULNSCOUT_DEPLOY_DIR ?= "${VULNSCOUT_BASE_DIR}/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}"
+VULNSCOUT_CACHE_DIR ?= "${VULNSCOUT_BASE_DIR}/cache"
 
 # Repo and version of vulnscout to use
 VULNSCOUT_VERSION ?= "v0.10.0"
@@ -17,9 +18,45 @@ VULNSCOUT_ENV_FLASK_RUN_HOST ?= "0.0.0.0"
 VULNSCOUT_ENV_GENERATE_DOCUMENTS ?= "summary.adoc,time_estimates.csv"
 VULNSCOUT_ENV_IGNORE_PARSING_ERRORS ?= 'false'
 
+# Helper function to check if Vulnscout required files are present on the host
+check_vulnscout_requirements() {
+    SPDX_3_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.json"
+    SPDX_2_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.tar.zst"
+    CVE_CHECK_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json"
+    SCOUTED_CVE_CHECK_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.scouted.json"
+
+    # Check the CVE-Check already exist
+    if ${@'true' if d.getVarFlag('do_scout_extra_kernel_vulns', 'task') else 'false'}; then
+        if [ ! -e "${SCOUTED_CVE_CHECK_PATH}" ]; then
+            bbfatal "Scouted CVE-Check file not found at ${SCOUTED_CVE_CHECK_PATH}. Please rebuild the image."
+        fi
+    elif [ ! -e "${CVE_CHECK_PATH}" ]; then
+        bbfatal "CVE-Check file not found at ${CVE_CHECK_PATH}. Please enable 'cve-check' in INHERIT to generate it and rebuild the image."
+    fi
+
+    # Check the SPDX-2.2 or SPDX-3.0 files already exist based on INHERIT
+    if ${@bb.utils.contains('INHERIT', 'create-spdx-3.0', 'true', 'false', d)}; then
+        if [ ! -e "${SPDX_3_PATH}" ]; then
+            bbfatal "SPDX-3.0 file not found at ${SPDX_3_PATH}. Please enable 'create-spdx-3.0' in INHERIT to generate it and rebuild the image."
+        fi
+    elif ${@bb.utils.contains('INHERIT', 'create-spdx', 'true', 'false', d)}; then
+        if [ ! -e "${SPDX_2_PATH}" ]; then
+            bbfatal "SPDX-2.2 file not found at ${SPDX_2_PATH}. Please enable 'create-spdx' in INHERIT to generate it and rebuild the image."
+        fi
+    fi
+}
+
 do_setup_vulnscout() {
+    check_vulnscout_requirements
+
     # Create a output directory for vulnscout configuration
     mkdir -p ${VULNSCOUT_DEPLOY_DIR}
+
+    if [ ! -e "${VULNSCOUT_BASE_DIR}/.gitignore" ]; then
+        cat > "${VULNSCOUT_BASE_DIR}/.gitignore" <<EOF
+cache/
+EOF
+    fi
 
     # Define Output YAML file
     compose_file="${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
@@ -39,25 +76,30 @@ EOF
     # Adding volumes to the docker-compose yml file
     if ${@bb.utils.contains('INHERIT', 'cve-check', 'true', 'false', d)}; then
         if ${@'true' if d.getVarFlag('do_scout_extra_kernel_vulns', 'task') else 'false'}; then
-            echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.scouted.json:/scan/inputs/yocto_cve_check/${IMAGE_LINK_NAME}.json:ro,Z" >> "$compose_file"
+            CVE_CHECK_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.scouted.json"
         else
-            echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json:/scan/inputs/yocto_cve_check/${IMAGE_LINK_NAME}.json:ro,Z" >> "$compose_file"
+            CVE_CHECK_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json"
         fi
+        CVE_CHECK_RELATIVE_PATH="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${CVE_CHECK_PATH}")"
+        echo "      - ${CVE_CHECK_RELATIVE_PATH}:/scan/inputs/yocto_cve_check/${IMAGE_LINK_NAME}.json:ro,Z" >> "$compose_file"
     fi
 
     # Test if we use SPDX 3.* or SPDX 2.2 and older versions
     case "${SPDX_VERSION}" in
         3.*)
-            echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.json:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.json:ro,Z" >> "$compose_file"
+            SPDX_RELATIVE_PATH="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.json")"
+            echo "      - ${SPDX_RELATIVE_PATH}:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.json:ro,Z" >> "$compose_file"
             ;;
         *)
-            echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.tar.zst:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.tar.zst:ro,Z" >> "$compose_file"
+            SPDX_RELATIVE_PATH="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.tar.zst")"
+            echo "      - ${SPDX_RELATIVE_PATH}:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.tar.zst:ro,Z" >> "$compose_file"
             ;;
     esac
 
     ${@bb.utils.contains('INHERIT', 'cyclonedx-export', 'echo "      - ${DEPLOY_DIR}/cyclonedx-export:/scan/inputs/cdx:ro" >> $compose_file', '', d)}
-    echo "      - ${VULNSCOUT_DEPLOY_DIR}/output:/scan/outputs:Z" >> "$compose_file"
-    echo "      - ${VULNSCOUT_CACHE_DIR}:/cache/vulnscout:Z" >> "$compose_file"
+    VULNSCOUT_CACHE_DIR_RELATIVE="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${VULNSCOUT_CACHE_DIR}")"
+    echo "      - ./output:/scan/outputs:Z" >> "$compose_file"
+    echo "      - ${VULNSCOUT_CACHE_DIR_RELATIVE}:/cache/vulnscout:Z" >> "$compose_file"
 
     # Add environnement variables
     cat >> "$compose_file" <<EOF
@@ -91,6 +133,10 @@ EOF
     if [ -n "${NVDCVE_API_KEY}" ]; then
         echo "      - NVD_API_KEY=${NVDCVE_API_KEY}" >> "$compose_file"
     fi
+    if [ -n "$(id -u)" ] && [ -n "$(id -g)" ]; then
+        echo "      - USER_UID=$(id -u)" >> "$compose_file"
+        echo "      - USER_GID=$(id -g)" >> "$compose_file"
+    fi
 
     bbplain "Vulnscout Setup Succeed: Docker Compose file set at ${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
     bbplain "Vulnscout Info: After the build you can start web interface with the command 'docker-compose -f \"${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml\" up'"
@@ -99,7 +145,7 @@ EOF
     rm -f "${WORKDIR}/vulnscout_ci_was_run"
 }
 do_setup_vulnscout[doc] = "Configure the yaml file required to start VulnScout in VULNSCOUT_DEPLOY_DIR"
-addtask setup_vulnscout after do_rootfs before do_image
+addtask setup_vulnscout after do_scout_extra_kernel_vulns do_image_complete before do_build
 
 python do_vulnscout_ci() {
     import subprocess
@@ -133,7 +179,7 @@ python do_vulnscout_ci() {
 }
 do_vulnscout_ci[nostamp] = "1"
 do_vulnscout_ci[doc] = "Launch VulnScout in non-interactive mode. VULNSCOUT_FAIL_CONDITION can be used to set a fail condition"
-addtask vulnscout_ci after do_scout_extra_kernel_vulns do_image_complete
+addtask vulnscout_ci after do_setup_vulnscout
 
 python do_vulnscout() {
     import os
@@ -147,7 +193,7 @@ python do_vulnscout() {
     compose_file = d.getVar("VULNSCOUT_DEPLOY_DIR") + "/docker-compose.yml"
     compose_cmd = ""
     log_path = d.getVar("T") + "/log.do_vulnscout_ci"
-    output_vulnscout = d.getVar("VULNSCOUT_DEPLOY_DIR") + "/ouput/"
+    output_vulnscout = d.getVar("VULNSCOUT_DEPLOY_DIR") + "/output/"
 
     fail_condition = d.getVar("VULNSCOUT_FAIL_CONDITION")
 
@@ -245,37 +291,13 @@ python do_vulnscout() {
 }
 do_vulnscout[nostamp] = "1"
 do_vulnscout[doc] = "Open a new terminal and launch VulnScout web interface in a Docker container"
-addtask vulnscout after do_scout_extra_kernel_vulns do_image_complete
+addtask vulnscout after do_setup_vulnscout
 
 python do_vulnscout_no_scan(){
-    import os
-
-    deploy_dir = d.getVar("DEPLOY_DIR_IMAGE")
-    image_name = d.getVar("IMAGE_LINK_NAME")
-    inherit_var = d.getVar('INHERIT') or ''
-
-    spdx_3_path = os.path.join(deploy_dir, f"{image_name}.spdx.json")
-    spdx_2_path = os.path.join(deploy_dir, f"{image_name}.spdx.tar.zst")
-    cve_check_path = os.path.join(deploy_dir, f"{image_name}.json")
-    scouted_cve_check_path = os.path.join(deploy_dir, f"{image_name}.scouted.json")
-
-    # Check the CVE-Check already exist
-    if d.getVarFlag('do_scout_extra_kernel_vulns', 'task'):
-        if not os.path.exists(scouted_cve_check_path):
-            bb.fatal(f"Scouted CVE-Check file not found at {scouted_cve_check_path}. Please rebuild the image.")
-    else:
-        if not os.path.exists(cve_check_path):
-            bb.fatal(f"CVE-Check file not found at {cve_check_path}. Please enable 'cve-check' in INHERIT to generate it and rebuild the image.")
-
-    # Check the SPDX-2.2 or SPDX-3.0 files already exist based on INHERIT
-    if 'create-spdx-3.0' in inherit_var:
-        if not os.path.exists(spdx_3_path):
-            bb.fatal(f"SPDX-3.0 file not found at {spdx_3_path}. Please enable 'create-spdx-3.0' in INHERIT to generate it and rebuild the image.")
-    elif 'create-spdx' in inherit_var:
-        if not os.path.exists(spdx_2_path):
-            bb.fatal(f"SPDX-2.2 file not found at {spdx_2_path}. Please enable 'create-spdx' in INHERIT to generate it and rebuild the image.")
-
-    # Call the setup vulnscout to start the docker container
+    # Call the check_vulnscout_requirements function to check requirements
+    # before launching vulnscout
+    bb.build.exec_func("check_vulnscout_requirements",d)
+    # Call the vulnscout task to start the docker container
     bb.build.exec_func("do_vulnscout",d)
 }
 do_vulnscout_no_scan[nostamp] = "1"
