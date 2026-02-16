@@ -24,8 +24,15 @@ do_setup_vulnscout() {
     # Define Output YAML file
     compose_file="${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
 
+    if [ ! -e "${VULNSCOUT_DEPLOY_DIR}/docker-compose-additions.yml" ]; then
+        touch "${VULNSCOUT_DEPLOY_DIR}/docker-compose-additions.yml"
+    fi
+
     # Add Header section
     cat > "$compose_file" <<EOF
+include:
+  - ./docker-compose-additions.yml
+
 services:
   vulnscout:
     image: ${VULNSCOUT_DOCKER_IMAGE}:${VULNSCOUT_VERSION}
