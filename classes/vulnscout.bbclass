@@ -209,7 +209,7 @@ python do_vulnscout_ci() {
     output_vulnscout = d.getVar("VULNSCOUT_DEPLOY_DIR") + "/output/"
 
     # Deactive the interactive mode in the docker-compose file
-    subprocess.run(['sed', '-i', 's/INTERACTIVE_MODE=true/INTERACTIVE_MODE=false/g', ${VULNSCOUT_COMPOSE_FILE}])
+    subprocess.run(['sed', '-i', 's/INTERACTIVE_MODE=true/INTERACTIVE_MODE=false/g', compose_file])
 
     old_fail_condition = d.getVar("VULNSCOUT_ENV_FAIL_CONDITION")
     new_fail_condition = d.getVar("VULNSCOUT_FAIL_CONDITION",)
