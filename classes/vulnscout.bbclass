@@ -2,6 +2,7 @@
 VULNSCOUT_ROOT_DIR ?= "${TOPDIR}/.."
 VULNSCOUT_DEPLOY_DIR ?= "${VULNSCOUT_ROOT_DIR}/.vulnscout/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}"
 VULNSCOUT_CACHE_DIR ?= "${VULNSCOUT_ROOT_DIR}/.vulnscout/cache"
+VULNSCOUT_COMPOSE_FILE ?= "${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
 
 # Repo and version of vulnscout to use
 VULNSCOUT_VERSION ?= "v0.10.0"
@@ -21,11 +22,8 @@ do_setup_vulnscout() {
     # Create a output directory for vulnscout configuration
     mkdir -p ${VULNSCOUT_DEPLOY_DIR}
 
-    # Define Output YAML file
-    compose_file="${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
-
     # Add Header section
-    cat > "$compose_file" <<EOF
+    cat > ${VULNSCOUT_COMPOSE_FILE} <<EOF
 services:
   vulnscout:
     image: ${VULNSCOUT_DOCKER_IMAGE}:${VULNSCOUT_VERSION}
@@ -39,28 +37,28 @@ EOF
     # Adding volumes to the docker-compose yml file
     if ${@bb.utils.contains('INHERIT', 'cve-check', 'true', 'false', d)}; then
         if ${@'true' if d.getVarFlag('do_scout_extra_kernel_vulns', 'task') else 'false'}; then
-            echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.scouted.json:/scan/inputs/yocto_cve_check/${IMAGE_LINK_NAME}.json:ro,Z" >> "$compose_file"
+            echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.scouted.json:/scan/inputs/yocto_cve_check/${IMAGE_LINK_NAME}.json:ro,Z" >> "${VULNSCOUT_COMPOSE_FILE}"
         else
-            echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json:/scan/inputs/yocto_cve_check/${IMAGE_LINK_NAME}.json:ro,Z" >> "$compose_file"
+            echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json:/scan/inputs/yocto_cve_check/${IMAGE_LINK_NAME}.json:ro,Z" >> "${VULNSCOUT_COMPOSE_FILE}"
         fi
     fi
 
     # Test if we use SPDX 3.* or SPDX 2.2 and older versions
     case "${SPDX_VERSION}" in
         3.*)
-            echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.json:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.json:ro,Z" >> "$compose_file"
+            echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.json:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.json:ro,Z" >> "${VULNSCOUT_COMPOSE_FILE}"
             ;;
         *)
-            echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.tar.zst:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.tar.zst:ro,Z" >> "$compose_file"
+            echo "      - ${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.tar.zst:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.tar.zst:ro,Z" >> "${VULNSCOUT_COMPOSE_FILE}"
             ;;
     esac
 
     ${@bb.utils.contains('INHERIT', 'cyclonedx-export', 'echo "      - ${DEPLOY_DIR}/cyclonedx-export:/scan/inputs/cdx:ro" >> $compose_file', '', d)}
-    echo "      - ${VULNSCOUT_DEPLOY_DIR}/output:/scan/outputs:Z" >> "$compose_file"
-    echo "      - ${VULNSCOUT_CACHE_DIR}:/cache/vulnscout:Z" >> "$compose_file"
+    echo "      - ${VULNSCOUT_DEPLOY_DIR}/output:/scan/outputs:Z" >> "${VULNSCOUT_COMPOSE_FILE}"
+    echo "      - ${VULNSCOUT_CACHE_DIR}:/cache/vulnscout:Z" >> "${VULNSCOUT_COMPOSE_FILE}"
 
     # Add environnement variables
-    cat >> "$compose_file" <<EOF
+    cat >> ${VULNSCOUT_COMPOSE_FILE} <<EOF
     environment:
       - FLASK_RUN_PORT=${VULNSCOUT_ENV_FLASK_RUN_PORT}
       - FLASK_RUN_HOST=${VULNSCOUT_ENV_FLASK_RUN_HOST}
@@ -71,29 +69,29 @@ EOF
 EOF
 
     if [ -n "${VULNSCOUT_ENV_FAIL_CONDITION}" ]; then
-        echo "      - FAIL_CONDITION=${VULNSCOUT_ENV_FAIL_CONDITION}" >> "$compose_file"
+        echo "      - FAIL_CONDITION=${VULNSCOUT_ENV_FAIL_CONDITION}" >> "${VULNSCOUT_COMPOSE_FILE}"
     fi
     if [ -n "${VULNSCOUT_ENV_PRODUCT_NAME}" ]; then
-        echo "      - PRODUCT_NAME=${VULNSCOUT_ENV_PRODUCT_NAME}" >> "$compose_file"
+        echo "      - PRODUCT_NAME=${VULNSCOUT_ENV_PRODUCT_NAME}" >> "${VULNSCOUT_COMPOSE_FILE}"
     fi
     if [ -n "${VULNSCOUT_ENV_PRODUCT_VERSION}" ]; then
-        echo "      - PRODUCT_VERSION=${VULNSCOUT_ENV_PRODUCT_VERSION}" >> "$compose_file"
+        echo "      - PRODUCT_VERSION=${VULNSCOUT_ENV_PRODUCT_VERSION}" >> "${VULNSCOUT_COMPOSE_FILE}"
     fi
     if [ -n "${VULNSCOUT_ENV_AUTHOR_NAME}" ]; then
-        echo "      - AUTHOR_NAME=${VULNSCOUT_ENV_AUTHOR_NAME}" >> "$compose_file"
+        echo "      - AUTHOR_NAME=${VULNSCOUT_ENV_AUTHOR_NAME}" >> "${VULNSCOUT_COMPOSE_FILE}"
     fi
     if [ -n "${VULNSCOUT_ENV_CONTACT_EMAIL}" ]; then
-        echo "      - CONTACT_EMAIL=${VULNSCOUT_ENV_CONTACT_EMAIL}" >> "$compose_file"
+        echo "      - CONTACT_EMAIL=${VULNSCOUT_ENV_CONTACT_EMAIL}" >> "${VULNSCOUT_COMPOSE_FILE}"
     fi
     if [ -n "${VULNSCOUT_ENV_DOCUMENT_URL}" ]; then
-        echo "      - DOCUMENT_URL=${VULNSCOUT_ENV_DOCUMENT_URL}" >> "$compose_file"
+        echo "      - DOCUMENT_URL=${VULNSCOUT_ENV_DOCUMENT_URL}" >> "${VULNSCOUT_COMPOSE_FILE}"
     fi
     if [ -n "${NVDCVE_API_KEY}" ]; then
-        echo "      - NVD_API_KEY=${NVDCVE_API_KEY}" >> "$compose_file"
+        echo "      - NVD_API_KEY=${NVDCVE_API_KEY}" >> "${VULNSCOUT_COMPOSE_FILE}"
     fi
 
-    bbplain "Vulnscout Setup Succeed: Docker Compose file set at ${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
-    bbplain "Vulnscout Info: After the build you can start web interface with the command 'docker-compose -f \"${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml\" up'"
+    bbplain "Vulnscout Setup Succeed: Docker Compose file set at ${VULNSCOUT_COMPOSE_FILE}"
+    bbplain "Vulnscout Info: After the build you can start web interface with the command 'docker-compose -f ${VULNSCOUT_COMPOSE_FILE} up'"
 }
 do_setup_vulnscout[doc] = "Configure the yaml file required to start VulnScout in VULNSCOUT_DEPLOY_DIR"
 addtask setup_vulnscout after do_rootfs before do_image
@@ -106,7 +104,7 @@ python clear_vulnscout_container() {
     import sys
 
     #Folder variables
-    compose_file = d.getVar("VULNSCOUT_DEPLOY_DIR") + "/docker-compose.yml"
+    compose_file = d.getVar("VULNSCOUT_COMPOSE_FILE")
     compose_cmd = ""
 
     # Check if docker-compose file has been created
@@ -116,13 +114,13 @@ python clear_vulnscout_container() {
     # Check if docker-compose exists on host
     if shutil.which("docker-compose"):
         compose_cmd = "docker-compose"
-        d.setVar("COMPOSE_CMD",compose_cmd)
+        d.setVar("VULNSCOUT_COMPOSE_CMD",compose_cmd)
     else:
         # Check for 'docker compose' subcommand
         try:
             subprocess.run(["docker", "compose", "version"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             compose_cmd = "docker compose"
-            d.setVar("COMPOSE_CMD",compose_cmd)
+            d.setVar("VULNSCOUT_COMPOSE_CMD",compose_cmd)
         except (subprocess.CalledProcessError, FileNotFoundError):
             bb.fatal("Neither 'docker-compose' nor 'docker compose' are available. Please install one of them.")
 
@@ -160,12 +158,12 @@ python do_vulnscout_ci() {
     import os
 
     # Define Output YAML file
-    compose_file = d.getVar("VULNSCOUT_DEPLOY_DIR") + "/docker-compose.yml"
+    compose_file = d.getVar("VULNSCOUT_COMPOSE_FILE")
 
     output_vulnscout = d.getVar("VULNSCOUT_DEPLOY_DIR") + "/output/"
 
     # Deactive the interactive mode in the docker-compose file
-    subprocess.run(['sed', '-i', 's/INTERACTIVE_MODE=true/INTERACTIVE_MODE=false/g', compose_file])
+    subprocess.run(['sed', '-i', 's/INTERACTIVE_MODE=true/INTERACTIVE_MODE=false/g', ${VULNSCOUT_COMPOSE_FILE}])
 
     old_fail_condition = d.getVar("VULNSCOUT_ENV_FAIL_CONDITION")
     new_fail_condition = d.getVar("VULNSCOUT_FAIL_CONDITION",)
@@ -186,7 +184,7 @@ python do_vulnscout_ci() {
 
     # Call the do_clear_vulnscout_container function
     bb.build.exec_func("clear_vulnscout_container",d)
-    compose_cmd = d.getVar("COMPOSE_CMD")
+    compose_cmd = d.getVar("VULNSCOUT_COMPOSE_CMD")
 
     # Launch vulnscount_ci
     if fail_condition:
@@ -231,17 +229,17 @@ python do_vulnscout_ci() {
 }
 do_vulnscout_ci[nostamp] = "1"
 do_vulnscout_ci[doc] = "Launch VulnScout in non-interactive mode. VULNSCOUT_FAIL_CONDITION can be used to set a fail condition"
-addtask vulnscout_ci after do_setup_vulnscout
+addtask vulnscout_ci after do_scout_extra_kernel_vulns do_image_complete
 
 python do_vulnscout() {
     import os
     import subprocess
 
-    compose_file = d.getVar("VULNSCOUT_DEPLOY_DIR") + "/docker-compose.yml"
+    compose_file = d.getVar("VULNSCOUT_COMPOSE_FILE")
 
     # Call the do_clear_vulnscout_container function
     bb.build.exec_func("clear_vulnscout_container",d)
-    compose_cmd = d.getVar("COMPOSE_CMD")
+    compose_cmd = d.getVar("VULNSCOUT_COMPOSE_CMD")
 
     # Delete fail condition in docker-compose file
     subprocess.run(['sed', '-i', '/FAIL_CONDITION=/d', compose_file])
@@ -261,7 +259,7 @@ python do_vulnscout() {
 }
 do_vulnscout[nostamp] = "1"
 do_vulnscout[doc] = "Open a new terminal and launch VulnScout web interface in a Docker container"
-addtask vulnscout after do_setup_vulnscout
+addtask vulnscout after do_scout_extra_kernel_vulns do_image_complete
 
 python do_vulnscout_no_scan(){
     import os
