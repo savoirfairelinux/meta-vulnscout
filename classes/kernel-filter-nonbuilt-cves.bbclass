@@ -13,7 +13,7 @@ clean_kernel_filter_nonbuilt_cves() {
 
 kernel_filter_nonbuilt_cves() {
     # Define input files
-    kernel_filter_nonbuilt_cves_script="${SCRIPT_FOLDER}/kernel_filter_nonbuilt_cves.py"
+    kernel_filter_nonbuilt_cves_script="${VULNSCOUT_SCRIPT_FOLDER}/kernel_filter_nonbuilt_cves.py"
     input_cve_check="${CVE_CHECK_DIR}/${PN}_cve.json"
     vulns_path="${STAGING_DATADIR_NATIVE}/vulns-native"
 

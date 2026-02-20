@@ -66,10 +66,6 @@ It reduces the amount of kernel CVEs to deal with by around 70%, depending on yo
 To integrate this class, a simple `inherit kernel-filter-nonbuilt-cves` is required in the kernel recipe. After a kernel build tree, new files will be located in your deploy directory. A file with `.kernel_remaining_cves.json` extension will contain the remaining active cves, a second file with `.kernel_removed_cves.json` contains the details of CVEs that don't apply to your system. \
 Also, the virtual kernel cve-check file will be affected and the final cve-check manifest will be affected by this class analysis setting all nonbuilt CVEs to `Ignored` status with `details` set to `cve-not-compiled-in-kernel` and `description` to `kernel_filter_nonbuilt_cves detected that this CVE is not affecting the current kernel build.`.
 
-> [!WARNING]
-> By default, the classes `kernel-generate-cve-exclusions.bbclass`, `improve_kernel_cve_report.bbclass`, and `kernel-filter-nonbuilt-cves.bbclass` require locating meta-vulnscout next to `poky` or `openembedded-core` folder to find the python script correctly.
-This behaviour can be modified with the variable `SCRIPT_FOLDER` defined in `meta-vulnscout/conf/layer.conf`.
-
 ## Using VulnScout Web Interface
 
 After a normal build, you should see a new `.vulnscout` folder in `${TOPDIR}/..` (can be modified with variable `VULNSCOUT_ROOT_DIR`).
