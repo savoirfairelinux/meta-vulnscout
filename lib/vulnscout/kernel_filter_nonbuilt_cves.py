@@ -7,40 +7,6 @@ import json
 import re
 from typing import Dict, List, Optional, Set, Tuple
 
-def get_parameters() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Kernel CVE filter tool"
-    )
-    parser.add_argument("--vulns-path", required=True, help="Path to the kernel vulns repository root")
-    parser.add_argument("--input-cve-check", required=True, help="Path to the cve-check input file")
-    parser.add_argument("--input-build-kernel-path", required=True, help="Path to the kernel build tree")
-    parser.add_argument("--output-path-analysis", required=True, help="Path where kernel_remaining_cves and kernel_removed_cves will be written")
-    parser.add_argument("--output-path-cve-check", required=True, help="Path where the filtered cve-check JSON will be written")
-    parser.add_argument("--output-filename-cve-check", default="kernel_filtered.json")
-    parser.add_argument("--output-filename-remaining-cves", default="kernel_remaining_cves.json")
-    parser.add_argument("--output-filename-removed-cves", default="kernel_removed_cves.json")
-    parser.add_argument("--verbose", action="store_true")
-
-    args = parser.parse_args()
-
-    if not os.path.isdir(args.input_build_kernel_path):
-        print(f"ERROR: Kernel path is not a directory: {args.input_build_kernel_path}")
-        sys.exit(1)
-    if not os.path.isfile(args.input_cve_check):
-        print(f"ERROR: CVE check input file does not exist: {args.input_cve_check}")
-        sys.exit(1)
-    if not os.path.isdir(args.vulns_path):
-        print(f"ERROR: Vulns path is not a directory: {args.vulns_path}")
-        sys.exit(1)
-    if not os.path.isdir(args.output_path_analysis):
-        print(f"ERROR: Output path for analysis results is not a directory: {args.output_path_analysis}")
-        sys.exit(1)
-    if not os.path.isdir(args.output_path_cve_check):
-        print(f"ERROR: Output path for CVE check is not a directory: {args.output_path_cve_check}")
-        sys.exit(1)
-
-    return args
-
 def kernel_parse_o_cmd_file(
     o_cmd_path: str, kernel_root: str
 ) -> Tuple[Optional[str], Optional[str], Set[str]]:
@@ -103,7 +69,7 @@ def kernel_build_compiled_sources(kernel_root: str) -> List[str]:
 
     return sorted(sources)
 
-def kernel_get_cves_unfixed(path: str) -> List[Dict[str, Optional[str]]]:
+def kernel_get_unpatched_cves(path: str) -> List[Dict[str, Optional[str]]]:
     """
     Load CVE JSON input and return all CVE entries where status is 'Unpatched'.
     """
@@ -136,7 +102,7 @@ def kernel_get_cves_unfixed(path: str) -> List[Dict[str, Optional[str]]]:
     return unfixed
 
 
-def vulns_get_affected_files(
+def kernel_get_cve_program_files(
     vulns_path: str,
     unfixed_cves: List[Dict[str, Optional[str]]],
     verbose: bool = False,
@@ -184,7 +150,7 @@ def vulns_get_affected_files(
 
     return results
 
-def kernel_map_cves_to_compiled_sources(
+def kernel_filter_cves_by_compiled_sources(
     affected_files_by_cve: Dict[str, List[str]],
     compiled_sources: List[str],
     enabled_cves: Optional[Dict[str, List[str]]] = None,
@@ -225,7 +191,7 @@ def generate_kernel_filtered_cve_check(
     if "package" not in data:
         print("ERROR: Invalid CVE check input (missing 'package')")
         sys.exit(1)
-    unfixed_ids = {e["id"] for e in kernel_get_cves_unfixed(original_cve_path) if e.get("id")}
+    unfixed_ids = {e["id"] for e in kernel_get_unpatched_cves(original_cve_path) if e.get("id")}
     enabled_set = set(enabled_cves.keys()) if isinstance(enabled_cves, dict) else set(enabled_cves)
     updated_count = 0
     kept_count = 0
@@ -253,52 +219,3 @@ def generate_kernel_filtered_cve_check(
         print(f"ERROR: Failed writing {output_path}: {e}")
         sys.exit(1)
     return data
-
-def main() -> None:
-    args = get_parameters()
-    enabled_cves: Dict[str, List[str]] = {}
-
-    # Step 1: Load "Unpatched" CVEs from the input cve-check JSON
-    unfixed = kernel_get_cves_unfixed(args.input_cve_check)
-    print(f"Unpatched kernel CVEs: {len(unfixed)}")
-
-    # Step 2: For each CVE, get affected programFiles from the vulns repo
-    affected_files = vulns_get_affected_files(args.vulns_path, unfixed, args.verbose)
-    print(f"CVEs with affected files from vulns repo: {len(affected_files)}")
-
-    # Step 3: CVEs with no programFiles in the vulns repo are kept as-is (no way to filter them)
-    unfixed_ids = {cve["id"] for cve in unfixed if cve.get("id")}
-    unmapped_cves = unfixed_ids - set(affected_files.keys())
-    enabled_cves = {cve_id: [] for cve_id in unmapped_cves}
-    print(f"CVEs without affected files (kept as active): {len(unmapped_cves)}")
-
-    # Step 4: Build the compiled source file list from .o.cmd files
-    print("Scanning .o.cmd files for compiled sources...")
-    compiled_sources = kernel_build_compiled_sources(args.input_build_kernel_path)
-    print(f"Unique compiled source files found: {len(compiled_sources)}")
-
-    # Step 5: Match CVE programFiles against compiled sources
-    kernel_map_cves_to_compiled_sources(affected_files, compiled_sources, enabled_cves)
-    print(f"Total CVEs affecting this kernel build: {len(enabled_cves)}")
-
-    # Step 6: Write output files
-    os.makedirs(args.output_path_analysis, exist_ok=True)
-    os.makedirs(args.output_path_cve_check, exist_ok=True)
-
-    enabled_cves_path = os.path.join(args.output_path_analysis, args.output_filename_remaining_cves)
-    with open(enabled_cves_path, "w", encoding="utf-8") as f:
-        json.dump(enabled_cves, f, indent=4)
-    print(f"Wrote active CVEs to: {enabled_cves_path}")
-
-    removed_cves = {k: v for k, v in affected_files.items() if k not in enabled_cves}
-    removed_cves_path = os.path.join(args.output_path_analysis, args.output_filename_removed_cves)
-    with open(removed_cves_path, "w", encoding="utf-8") as f:
-        json.dump(removed_cves, f, indent=4)
-    print(f"Wrote unaffected CVEs to: {removed_cves_path}")
-
-    filtered_path = os.path.join(args.output_path_cve_check, args.output_filename_cve_check)
-    generate_kernel_filtered_cve_check(args.input_cve_check, enabled_cves, filtered_path)
-
-
-if __name__ == "__main__":
-    main()
