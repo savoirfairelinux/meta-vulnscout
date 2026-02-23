@@ -1,71 +1,103 @@
-clean_kernel_filter_nonbuilt_cves() {
-    for f in ${DEPLOY_DIR_IMAGE}/*kernel_removed_cves.json; do
-        [ -f "$f" ] || continue
-        bbnote "Removing $f"
-        rm -f "$f"
-    done
-    for f in ${DEPLOY_DIR_IMAGE}/*kernel_remaining_cves.json; do
-        [ -f "$f" ] || continue
-        bbnote "Removing $f"
-        rm -f "$f"
-    done
+python clean_kernel_filter_nonbuilt_cves() {
+    import glob
+    import os
+    deploy_dir_image = d.getVar('DEPLOY_DIR_IMAGE')
+    for pattern in ['*kernel_removed_cves.json', '*kernel_remaining_cves.json']:
+        for f in glob.glob(os.path.join(deploy_dir_image, pattern)):
+            bb.note(f"Removing {f}")
+            os.remove(f)
 }
 
-kernel_filter_nonbuilt_cves() {
+python kernel_filter_nonbuilt_cves() {
+    import os
+    import vulnscout.kernel_filter_nonbuilt_cves as kf
+    import json
+
     # Define input files
-    kernel_filter_nonbuilt_cves_script="${VULNSCOUT_SCRIPT_FOLDER}/kernel_filter_nonbuilt_cves.py"
-    input_cve_check="${CVE_CHECK_DIR}/${PN}_cve.json"
-    vulns_path="${STAGING_DATADIR_NATIVE}/vulns-native"
+    input_cve_check = os.path.join(d.getVar('CVE_CHECK_DIR'), d.getVar('PN') + '_cve.json')
+    vulns_path = os.path.join(d.getVar('STAGING_DATADIR_NATIVE'), 'vulns-native')
+    kernel_build_path = d.getVar('B')
+
+    # Define output files and paths
+    deploy_dir_image = d.getVar('DEPLOY_DIR_IMAGE')
+    cve_check_dir = d.getVar('CVE_CHECK_DIR')
+    pn = d.getVar('PN')
+    image_name = d.getVar('IMAGE_NAME')
+    image_basename = d.getVar('IMAGE_BASENAME')
+    image_machine_suffix = d.getVar('IMAGE_MACHINE_SUFFIX')
+    image_name_suffix = d.getVar('IMAGE_NAME_SUFFIX')
 
     # Check that the required files exist before running the script
-    if [ ! -f "${input_cve_check}" ]; then
-        bbwarn "kernel-filter-nonbuilt-cves: cve-check file not found: ${input_cve_check}"
-        return 0
-    fi
-    if [ ! -f "${kernel_filter_nonbuilt_cves_script}" ]; then
-        bbwarn "kernel-filter-nonbuilt-cves: kernel_filter_nonbuilt_cves.py script not found: ${kernel_filter_nonbuilt_cves_script}"
-        return 0
-    fi
-    if [ ! -d "${vulns_path}" ]; then
-        bbwarn "kernel-filter-nonbuilt-cves: Vulnerabilities data not found in ${vulns_path}."
-        return 0
-    fi
-    if [ ! -d "${B}" ]; then
-        bbwarn "kernel-filter-nonbuilt-cves: Kernel build directory not found: ${B}"
-        return 0
-    fi
+    if not os.path.isfile(input_cve_check):
+        bb.warn(f"kernel-filter-nonbuilt-cves: cve-check file not found: {input_cve_check}")
+        return
+    if not os.path.isdir(vulns_path):
+        bb.warn(f"kernel-filter-nonbuilt-cves: Vulnerabilities data not found in {vulns_path}")
+        return
+    if not os.path.isdir(kernel_build_path):
+        bb.warn(f"kernel-filter-nonbuilt-cves: Kernel build directory not found: {kernel_build_path}")
+        return
 
-    # Build the full command as a string (for debug)
-    KERNEL_CVE_FILTER_CMD="python3 ${kernel_filter_nonbuilt_cves_script} \
-        --vulns-path ${vulns_path} \
-        --input-cve-check ${input_cve_check} \
-        --input-build-kernel-path ${B} \
-        --output-filename-cve-check ${PN}_cve.json \
-        --output-filename-remaining-cves ${IMAGE_NAME}.kernel_remaining_cves.json \
-        --output-filename-removed-cves ${IMAGE_NAME}.kernel_removed_cves.json \
-        --output-path-analysis ${DEPLOY_DIR_IMAGE} \
-        --output-path-cve-check ${CVE_CHECK_DIR}"
+    # Define output files names
+    output_filename_cve_check = f"{pn}_cve.json"
+    output_filename_remaining = f"{image_name}.kernel_remaining_cves.json"
+    output_filename_removed = f"{image_name}.kernel_removed_cves.json"
 
-    # Debug: print the exact command that will be executed
-    bbnote "Kernel CVE filter command:"
-    bbnote "  ${KERNEL_CVE_FILTER_CMD}"
+    # Step 1: Load Unpatched CVEs
+    unfixed = kf.kernel_get_unpatched_cves(input_cve_check)
+    bb.note(f"Unpatched kernel CVEs: {len(unfixed)}")
 
-    # Launch the kernel filtering script
-    ${KERNEL_CVE_FILTER_CMD}
+    # Step 2: Get affected programFiles from vulns repo
+    affected_files = kf.kernel_get_cve_program_files(vulns_path, unfixed)
+    bb.note(f"CVEs with affected files from vulns repo: {len(affected_files)}")
 
-    # Success message which returns the generated files
-    bbplain "kernel-filter-nonbuilt-cves: Remaining kernel CVEs mapping file: ${DEPLOY_DIR_IMAGE}/${IMAGE_NAME}.kernel_remaining_cves.json"
-    bbplain "kernel-filter-nonbuilt-cves: Removed kernel CVEs not applicable to the current kernel configuration: ${DEPLOY_DIR_IMAGE}/${IMAGE_NAME}.kernel_removed_cves.json"
-    bbplain "kernel-filter-nonbuilt-cves: New cve-check generated report with kernel cves filtered: ${CVE_CHECK_DIR}/${PN}_cve.json"
+    # Step 3: CVEs with no programFiles are kept as-is
+    unfixed_ids = {cve["id"] for cve in unfixed if cve.get("id")}
+    unmapped_cves = unfixed_ids - set(affected_files.keys())
+    enabled_cves = {cve_id: [] for cve_id in unmapped_cves}
+    bb.note(f"CVEs without affected files (kept as active): {len(unmapped_cves)}")
 
-    #Create a symlink as every other JSON file in tmp/deploy/images
-    ln -sf ${DEPLOY_DIR_IMAGE}/${IMAGE_NAME}.kernel_remaining_cves.json ${DEPLOY_DIR_IMAGE}/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}${IMAGE_NAME_SUFFIX}.kernel_remaining_cves.json
-    ln -sf ${DEPLOY_DIR_IMAGE}/${IMAGE_NAME}.kernel_removed_cves.json ${DEPLOY_DIR_IMAGE}/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}${IMAGE_NAME_SUFFIX}.kernel_removed_cves.json
+    # Step 4: Build compiled source list from .o.cmd files
+    bb.note("Scanning .o.cmd files for compiled sources...")
+    compiled_sources = kf.kernel_build_compiled_sources(kernel_build_path)
+    bb.note(f"Unique compiled source files found: {len(compiled_sources)}")
+
+    # Step 5: Match CVE programFiles against compiled sources
+    kf.kernel_filter_cves_by_compiled_sources(affected_files, compiled_sources, enabled_cves)
+    bb.note(f"Total CVEs affecting this kernel build: {len(enabled_cves)}")
+
+    # Step 6: Write output files
+    os.makedirs(deploy_dir_image, exist_ok=True)
+    os.makedirs(cve_check_dir, exist_ok=True)
+
+    remaining_path = os.path.join(deploy_dir_image, output_filename_remaining)
+    with open(remaining_path, "w", encoding="utf-8") as f:
+        json.dump(enabled_cves, f, indent=4)
+
+    removed_cves = {k: v for k, v in affected_files.items() if k not in enabled_cves}
+    removed_path = os.path.join(deploy_dir_image, output_filename_removed)
+    with open(removed_path, "w", encoding="utf-8") as f:
+        json.dump(removed_cves, f, indent=4)
+
+    filtered_path = os.path.join(cve_check_dir, output_filename_cve_check)
+    kf.generate_kernel_filtered_cve_check(input_cve_check, enabled_cves, filtered_path)
+
+    bb.plain(f"kernel-filter-nonbuilt-cves: Remaining kernel CVEs mapping file: {remaining_path}")
+    bb.plain(f"kernel-filter-nonbuilt-cves: Removed kernel CVEs not applicable to the current kernel configuration: {removed_path}")
+    bb.plain(f"kernel-filter-nonbuilt-cves: New cve-check generated report with kernel cves filtered: {filtered_path}")
+
+    # Create symlinks
+    symlink_remaining = os.path.join(deploy_dir_image, f"{image_basename}{image_machine_suffix}{image_name_suffix}.kernel_remaining_cves.json")
+    symlink_removed = os.path.join(deploy_dir_image, f"{image_basename}{image_machine_suffix}{image_name_suffix}.kernel_removed_cves.json")
+    for symlink, target in [(symlink_remaining, remaining_path), (symlink_removed, removed_path)]:
+        if os.path.islink(symlink) or os.path.exists(symlink):
+            os.remove(symlink)
+        os.symlink(target, symlink)
 }
 
-kernel_clear_and_filter_nonbuilt_cves() {
-    clean_kernel_filter_nonbuilt_cves
-    kernel_filter_nonbuilt_cves
+python kernel_clear_and_filter_nonbuilt_cves() {
+    bb.build.exec_func('clean_kernel_filter_nonbuilt_cves', d)
+    bb.build.exec_func('kernel_filter_nonbuilt_cves', d)
 }
 
 python do_clean:append() {
