@@ -28,6 +28,13 @@ do_scout_extra_kernel_vulns() {
     new_cve_report_file="${DEPLOY_DIR_IMAGE}/${IMAGE_NAME}.scouted.json"
     improve_kernel_cve_script="${COREBASE}/scripts/contrib/improve_kernel_cve_report.py"
 
+    # Remove any previously generated scouted.json files (real files and symlinks)
+    for old_f in "${DEPLOY_DIR_IMAGE}/"*scouted.json; do
+        [ -e "$old_f" ] || [ -L "$old_f" ] || continue
+        bbwarn "improve_kernel_cve: Removing old scouted file: $old_f"
+        rm -f "$old_f"
+    done
+
     # Check that IMPROVE_KERNEL_SPDX_FILE is set and the file exists
     if [ -z "${IMPROVE_KERNEL_SPDX_FILE}" ] || [ ! -f "${IMPROVE_KERNEL_SPDX_FILE}" ]; then
         bbwarn "improve_kernel_cve: IMPROVE_KERNEL_SPDX_FILE is empty or file not found: ${IMPROVE_KERNEL_SPDX_FILE}"
