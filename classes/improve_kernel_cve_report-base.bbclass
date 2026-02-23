@@ -16,24 +16,9 @@ python __anonymous() {
         bb.build.addtask('do_scout_extra_kernel_vulns', 'do_build', 'do_create_image_sbom_spdx', d)
 }
 
-python do_clean:append() {
-    import os, glob
-    deploy_dir = d.expand('${DEPLOY_DIR_IMAGE}')
-    for f in glob.glob(os.path.join(deploy_dir, '*scouted.json')):
-        bb.note("Removing " + f)
-        os.remove(f)
-}
-
 do_scout_extra_kernel_vulns() {
-    new_cve_report_file="${DEPLOY_DIR_IMAGE}/${IMAGE_NAME}.scouted.json"
+    new_cve_report_file="${IMGDEPLOYDIR}/${IMAGE_NAME}.scouted.json"
     improve_kernel_cve_script="${COREBASE}/scripts/contrib/improve_kernel_cve_report.py"
-
-    # Remove any previously generated scouted.json files (real files and symlinks)
-    for old_f in "${DEPLOY_DIR_IMAGE}/"*scouted.json; do
-        [ -e "$old_f" ] || [ -L "$old_f" ] || continue
-        bbwarn "improve_kernel_cve: Removing old scouted file: $old_f"
-        rm -f "$old_f"
-    done
 
     # Check that IMPROVE_KERNEL_SPDX_FILE is set and the file exists
     if [ -z "${IMPROVE_KERNEL_SPDX_FILE}" ] || [ ! -f "${IMPROVE_KERNEL_SPDX_FILE}" ]; then
@@ -63,9 +48,9 @@ do_scout_extra_kernel_vulns() {
     bbplain "Improve CVE report with extra kernel cves: ${new_cve_report_file}"
 
     #Create a symlink as every other JSON file in tmp/deploy/images
-    ln -sf ${DEPLOY_DIR_IMAGE}/${IMAGE_NAME}.scouted.json ${DEPLOY_DIR_IMAGE}/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}${IMAGE_NAME_SUFFIX}.scouted.json
+    ln -sf ${IMGDEPLOYDIR}/${IMAGE_NAME}.scouted.json ${IMGDEPLOYDIR}/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}${IMAGE_NAME_SUFFIX}.scouted.json
 }
 do_scout_extra_kernel_vulns[depends] += "vulns-native:do_populate_sysroot"
 do_scout_extra_kernel_vulns[nostamp] = "1"
 do_scout_extra_kernel_vulns[doc] = "Scout extra kernel vulnerabilities and create a new enhanced version of the cve_check file in the deploy directory"
-addtask do_scout_extra_kernel_vulns after do_prepare_recipe_sysroot
+addtask do_scout_extra_kernel_vulns before do_deploy after do_rootfs
