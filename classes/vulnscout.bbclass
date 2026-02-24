@@ -20,6 +20,15 @@ VULNSCOUT_ENV_GENERATE_DOCUMENTS ?= "summary.adoc,time_estimates.csv"
 VULNSCOUT_ENV_IGNORE_PARSING_ERRORS ?= 'false'
 VULNSCOUT_ENV_CVE_CHECK_EXCLUDE_PATCHED ?= "false"
 
+python __anonymous() {
+    if bb.data.inherits_class("create-spdx-2.2", d):
+        bb.build.addtask("do_setup_vulnscout", "do_build", "do_image_complete", d)
+    elif bb.data.inherits_class("create-spdx-3.0", d):
+        bb.build.addtask("do_setup_vulnscout", "do_build", "do_create_image_sbom_spdx", d)
+    else:
+        bb.fatal("Neither create-spdx nor create-spdx-2.2 class is inherited, please inherit one of these classes in your distro or local.conf.")
+}
+
 # Helper function to check if Vulnscout required files are present on the host
 check_vulnscout_requirements() {
     SPDX_3_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.json"
@@ -140,7 +149,6 @@ EOF
     bbplain "Vulnscout Info: After the build you can start web interface with the command 'docker-compose -f ${VULNSCOUT_COMPOSE_FILE} up'"
 }
 do_setup_vulnscout[doc] = "Configure the yaml file required to start VulnScout in VULNSCOUT_DEPLOY_DIR"
-addtask setup_vulnscout after do_create_image_sbom_spdx before do_build
 
 python clear_vulnscout_container() {
     import os
