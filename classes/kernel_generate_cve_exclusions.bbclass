@@ -34,10 +34,12 @@ addtask generate_cve_exclusions after do_prepare_recipe_sysroot before do_cve_ch
 python do_cve_check:prepend() {
     import os
     import json
-    workdir = d.getVar("${STAGING_DATADIR_NATIVE}/cvelistv5-native")
     kernel_version = d.getVar("LINUX_VERSION")
     json_input_file = d.getVar("GENERATE_CVE_EXCLUSIONS_OUTPUT_JSON")
-    if os.path.exists(json_input_file):
+
+    if not json_input_file or not os.path.exists(json_input_file):
+        bb.warn("generate-cve-exclusions: JSON output file not found, skipping CVE_STATUS injection")
+    else:
         with open(json_input_file, 'r', encoding='utf-8') as f:
             cve_data = json.load(f)
         cve_status_dict = cve_data.get("cve_status", {})
