@@ -38,4 +38,4 @@ do_scout_extra_kernel_vulns() {
 do_scout_extra_kernel_vulns[depends] += "vulns-native:do_populate_sysroot"
 do_scout_extra_kernel_vulns[nostamp] = "1"
 do_scout_extra_kernel_vulns[doc] = "Scout extra kernel vulnerabilities and create a new enhanced version of the cve_check file in the deploy directory"
-addtask do_scout_extra_kernel_vulns before do_image after do_rootfs
+addtask do_scout_extra_kernel_vulns after do_rootfs before do_image_complete
