@@ -2,4 +2,4 @@
 inherit kernel-generate-cve-exclusions
 
 # Optional: add kernel-filter-nonbuilt-cves class to filter out CVEs not applicable to the current kernel defconfig
-inherit kernel-filter-nonbuilt-cves
+inherit kernel_filter_nonbuilt_cves
