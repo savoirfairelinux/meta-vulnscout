@@ -14,7 +14,7 @@ CVELISTV5_DEFAULT_SRCREV ?= "644ce1758db1773336ebebb6a0da90e132da0eb7"
 S = "${WORKDIR}/git"
 
 python __anonymous () {
-    if d.getVar("CVELISTV5_USE_AUTOREV") == "1":
+    if d.getVar("CVELISTV5_USE_AUTOREV") == "1" and not bb.utils.to_boolean(d.getVar("BB_NO_NETWORK")):
         d.setVar("SRCREV", d.getVar("AUTOREV"))
     else:
         d.setVar("SRCREV", d.getVar("CVELISTV5_DEFAULT_SRCREV"))
