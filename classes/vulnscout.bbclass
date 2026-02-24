@@ -144,7 +144,7 @@ EOF
     bbplain "Vulnscout Info: After the build you can start web interface with the command 'docker-compose -f ${VULNSCOUT_COMPOSE_FILE} up'"
 }
 do_setup_vulnscout[doc] = "Configure the yaml file required to start VulnScout in VULNSCOUT_DEPLOY_DIR"
-addtask setup_vulnscout after do_scout_extra_kernel_vulns do_image_complete before do_build
+addtask setup_vulnscout after do_create_image_sbom_spdx before do_build
 
 python clear_vulnscout_container() {
     import os
