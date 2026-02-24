@@ -9,11 +9,9 @@ python __anonymous() {
     if bb.data.inherits_class("create-spdx-2.2", d):
         if not d.getVar("IMPROVE_KERNEL_PREFERRED_PROVIDER") == "create-spdx-2.2":
             bb.fatal("improve_kernel_cve_report: IMPROVE_KERNEL_PREFERRED_PROVIDER is set to '%s', but 'create-spdx-2.2' class is inherited. Please check your configuration." % d.getVar("IMPROVE_KERNEL_PREFERRED_PROVIDER"))
-        bb.build.addtask("do_scout_extra_kernel_vulns", "do_build", "do_rootfs", d)
     elif bb.data.inherits_class("create-spdx", d):
         if not d.getVar("IMPROVE_KERNEL_PREFERRED_PROVIDER") == "create-spdx":
             bb.fatal("improve_kernel_cve_report: IMPROVE_KERNEL_PREFERRED_PROVIDER is set to '%s', but 'create-spdx' class is inherited. Please check your configuration." % d.getVar("IMPROVE_KERNEL_PREFERRED_PROVIDER"))
-        bb.build.addtask('do_scout_extra_kernel_vulns', 'do_build', "do_rootfs", d)
 }
 
 do_scout_extra_kernel_vulns() {
