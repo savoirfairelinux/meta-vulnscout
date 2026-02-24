@@ -13,7 +13,7 @@ python __anonymous() {
     elif bb.data.inherits_class("create-spdx", d):
         if not d.getVar("IMPROVE_KERNEL_PREFERRED_PROVIDER") == "create-spdx":
             bb.fatal("improve_kernel_cve_report: IMPROVE_KERNEL_PREFERRED_PROVIDER is set to '%s', but 'create-spdx' class is inherited. Please check your configuration." % d.getVar("IMPROVE_KERNEL_PREFERRED_PROVIDER"))
-        bb.build.addtask('do_scout_extra_kernel_vulns', 'do_build', 'do_create_image_sbom_spdx', d)
+        bb.build.addtask('do_scout_extra_kernel_vulns', 'do_build', "do_rootfs", d)
 }
 
 do_scout_extra_kernel_vulns() {
@@ -45,12 +45,12 @@ do_scout_extra_kernel_vulns() {
         --old-cve-report "${CVE_CHECK_MANIFEST_JSON}" \
         --new-cve-report "${new_cve_report_file}" \
         --datadir "${STAGING_DATADIR_NATIVE}/vulns-native"
-    bbplain "Improve CVE report with extra kernel cves: ${new_cve_report_file}"
+    bbplain "improve CVE report with extra kernel cves: ${new_cve_report_file}"
 
     #Create a symlink as every other JSON file in tmp/deploy/images
-    ln -sf ${IMGDEPLOYDIR}/${IMAGE_NAME}.scouted.json ${IMGDEPLOYDIR}/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}${IMAGE_NAME_SUFFIX}.scouted.json
+    ln -sf ${IMAGE_NAME}.scouted.json ${IMGDEPLOYDIR}/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}${IMAGE_NAME_SUFFIX}.scouted.json
 }
 do_scout_extra_kernel_vulns[depends] += "vulns-native:do_populate_sysroot"
 do_scout_extra_kernel_vulns[nostamp] = "1"
 do_scout_extra_kernel_vulns[doc] = "Scout extra kernel vulnerabilities and create a new enhanced version of the cve_check file in the deploy directory"
-addtask do_scout_extra_kernel_vulns before do_deploy after do_rootfs
+addtask do_scout_extra_kernel_vulns before do_image after do_rootfs
