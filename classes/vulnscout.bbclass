@@ -46,11 +46,11 @@ check_vulnscout_requirements() {
     fi
 
     # Check the SPDX-2.2 or SPDX-3.0 files already exist based on INHERIT
-    if ${@bb.utils.contains('INHERIT', 'create-spdx-3.0', 'true', 'false', d)}; then
+    if ${@'true' if bb.data.inherits_class("create-spdx-3.0", d) else 'false'}; then
         if [ ! -e "${SPDX_3_PATH}" ]; then
             bbfatal "SPDX-3.0 file not found at ${SPDX_3_PATH}. Please enable 'create-spdx-3.0' in INHERIT to generate it and rebuild the image."
         fi
-    elif ${@bb.utils.contains('INHERIT', 'create-spdx', 'true', 'false', d)}; then
+    elif ${@'true' if bb.data.inherits_class("create-spdx-2.2", d) else 'false'}; then
         if [ ! -e "${SPDX_2_PATH}" ]; then
             bbfatal "SPDX-2.2 file not found at ${SPDX_2_PATH}. Please enable 'create-spdx' in INHERIT to generate it and rebuild the image."
         fi
@@ -92,18 +92,14 @@ EOF
         echo "      - ${CVE_CHECK_RELATIVE_PATH}:/scan/inputs/yocto_cve_check/${IMAGE_LINK_NAME}.json:ro,Z" >> "${VULNSCOUT_COMPOSE_FILE}"
     fi
 
-    # Test if we use SPDX 3.* or SPDX 2.2 and older versions
-    case "${SPDX_VERSION}" in
-        3.*)
-            SPDX_RELATIVE_PATH="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.json")"
-            echo "      - ${SPDX_RELATIVE_PATH}:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.json:ro,Z" >> "${VULNSCOUT_COMPOSE_FILE}"
-            ;;
-        *)
-            SPDX_RELATIVE_PATH="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.tar.zst")"
-            echo "      - ${SPDX_RELATIVE_PATH}:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.tar.zst:ro,Z" >> "${VULNSCOUT_COMPOSE_FILE}"
-            ;;
-    esac
-
+    # Test if we use SPDX 3.0 or SPDX 2.2
+    if ${@'true' if bb.data.inherits_class("create-spdx-3.0", d) else 'false'}; then
+        SPDX_RELATIVE_PATH="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.json")"
+        echo "      - ${SPDX_RELATIVE_PATH}:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.json:ro,Z" >> "${VULNSCOUT_COMPOSE_FILE}"
+    elif ${@'true' if bb.data.inherits_class("create-spdx-2.2", d) else 'false'}; then
+        SPDX_RELATIVE_PATH="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.tar.zst")"
+        echo "      - ${SPDX_RELATIVE_PATH}:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.tar.zst:ro,Z" >> "${VULNSCOUT_COMPOSE_FILE}"
+    fi
     ${@bb.utils.contains('INHERIT', 'cyclonedx-export', 'echo "      - $(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${DEPLOY_DIR}/cyclonedx-export"):/scan/inputs/cdx:ro" >> ${VULNSCOUT_COMPOSE_FILE}', '', d)}
     VULNSCOUT_CACHE_DIR_RELATIVE="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${VULNSCOUT_CACHE_DIR}")"
     echo "      - ./output:/scan/outputs:Z" >> "${VULNSCOUT_COMPOSE_FILE}"
