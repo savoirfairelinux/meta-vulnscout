@@ -383,118 +383,35 @@ def cve_update(cve_data, cve, entry):
     logging.warning("Unhandled CVE entry update for %s %s from %s %s to %s",
         cve, cve_data[cve]['status'], cve_data[cve]['detail'],  entry['status'], entry['detail'])
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Update cve-summary with kernel compiled files and kernel CVE information"
-    )
-    parser.add_argument(
-        "-s",
-        "--spdx",
-        help="SPDX2/3 for the kernel. Needs to include compiled sources",
-    )
-    parser.add_argument(
-        "--debug-sources-file",
-        help="Debug sources zstd file generated from Yocto",
-    )
-    parser.add_argument(
-        "--datadir",
-        type=pathlib.Path,
-        help="Directory where CVE data is",
-        required=True
-    )
-    parser.add_argument(
-        "--old-cve-report",
-        help="CVE report to update. (Optional)",
-    )
-    parser.add_argument(
-        "--kernel-version",
-        help="Kernel version. Needed if old cve_report is not provided (Optional)",
-        type=Version
-    )
-    parser.add_argument(
-        "--new-cve-report",
-        help="Output file",
-        default="cve-summary-enhance.json"
-    )
-    parser.add_argument(
-        "-D",
-        "--debug",
-        help='Enable debug ',
-        action="store_true")
+def kernel_improve_cve_report(spdx_file, old_cve_report_path, new_cve_report_path, datadir):
+    """
+    Main entry point for the library. Reads the SPDX and CVE report,
+    enriches CVE data with kernel vuln info, and writes the result.
+    """
+    compiled_files = read_spdx(spdx_file)
+    logging.info("Total compiled files %d", len(compiled_files))
 
-    args = parser.parse_args()
-
-    if args.debug:
-        log_level=logging.DEBUG
-    else:
-        log_level=logging.INFO
-    logging.basicConfig(format='[%(filename)s:%(lineno)d] %(message)s', level=log_level)
-
-    if not args.kernel_version and not args.old_cve_report:
-        parser.error("either --kernel-version or --old-cve-report are needed")
-        return -1
-
-    # by default we don't check the compiled files, unless provided
-    compiled_files = []
-    if args.spdx:
-        compiled_files = read_spdx(args.spdx)
-        logging.info("Total compiled files %d", len(compiled_files))
-    if args.debug_sources_file:
-        compiled_files = read_debugsources(args.debug_sources_file)
-        logging.info("Total compiled files %d", len(compiled_files))
-
-    if args.old_cve_report:
-        with open(args.old_cve_report, encoding='ISO-8859-1') as f:
-            cve_report = json.load(f)
-    else:
-        #If summary not provided, we create one
-        cve_report = {
-            "version": "1",
-            "package": [
-                {
-                    "name": "linux-yocto",
-                    "version": str(args.kernel_version),
-                    "products": [
-                        {
-                            "product": "linux_kernel",
-                            "cvesInRecord": "Yes"
-                        }
-                    ],
-                    "issue": []
-                }
-            ]
-        }
+    with open(old_cve_report_path, encoding='ISO-8859-1') as f:
+        cve_report = json.load(f)
 
     for pkg in cve_report['package']:
-        is_kernel = False
-        for product in pkg['products']:
-            if product['product'] == "linux_kernel":
-                is_kernel=True
-        if not is_kernel:
+        if not any(p['product'] == "linux_kernel" for p in pkg.get('products', [])):
             continue
-        # We remove custom versions after -
+
         upstream_version = Version(pkg["version"].split("-")[0])
         logging.info("Checking kernel %s", upstream_version)
-        kernel_cves = get_kernel_cves(args.datadir,
-                                      compiled_files,
-                                      upstream_version)
-        logging.info("Total kernel cves from kernel CNA: %s", len(kernel_cves))
+
+        kernel_cves = get_kernel_cves(datadir, compiled_files, upstream_version)
+        logging.info("Total kernel CVEs from kernel CNA: %s", len(kernel_cves))
+
         cves = {issue["id"]: issue for issue in pkg["issue"]}
-        logging.info("Total kernel before processing cves: %s", len(cves))
+        logging.info("Total kernel CVEs before processing: %s", len(cves))
 
         for cve in kernel_cves:
             cve_update(cves, cve, kernel_cves[cve])
 
-        pkg["issue"] = []
-        for cve in sorted(cves):
-            pkg["issue"].extend([cves[cve]])
-        logging.info("Total kernel cves after processing: %s", len(pkg['issue']))
+        pkg["issue"] = [cves[cve] for cve in sorted(cves)]
+        logging.info("Total kernel CVEs after processing: %s", len(pkg['issue']))
 
-    with open(args.new_cve_report, "w", encoding='ISO-8859-1') as f:
+    with open(new_cve_report_path, "w", encoding='ISO-8859-1') as f:
         json.dump(cve_report, f, indent=2)
-
-    return 0
-
-if __name__ == "__main__":
-    sys.exit(main())
-
