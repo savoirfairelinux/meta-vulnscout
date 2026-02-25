@@ -8,6 +8,8 @@ Support for Cyclone DX, SPDX, Yocto JSON files, and Open VEX.
 
 The command `docker-compose` or `docker compose` should be available on the host device.
 
+The `python3-packaging` package should be installed on the build host. If you are running in CQFD, you should add it in `.cqfd/docker/Dockerfile`.
+
 ##  Installation
 
 To install this meta-layer, simply clone the repository into the `sources` directory and add it to your `build/conf/bblayers.conf` file:
