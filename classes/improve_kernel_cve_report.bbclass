@@ -1,41 +1,42 @@
 # Setting to specify the path to the SPDX file to be used for extra kernel vulnerabilities scouting
 IMPROVE_KERNEL_SPDX_FILE = "${DEPLOY_DIR_SPDX}/${@d.getVar('MACHINE').replace('-', '_')}/recipes/recipe-${PREFERRED_PROVIDER_virtual/kernel}.spdx.json"
 
-do_scout_extra_kernel_vulns() {
-    new_cve_report_file="${IMGDEPLOYDIR}/${IMAGE_NAME}.scouted.json"
-    improve_kernel_cve_script="${VULNSCOUT_SCRIPT_FOLDER}/improve_kernel_cve_report.py"
+python do_image_improve_kernel_cve_report() {
+    import os
+    import vulnscout.improve_kernel_cve_report as ikc
 
-    # Check that IMPROVE_KERNEL_SPDX_FILE is set and the file exists
-    if [ -z "${IMPROVE_KERNEL_SPDX_FILE}" ] || [ ! -f "${IMPROVE_KERNEL_SPDX_FILE}" ]; then
-        bbwarn "improve_kernel_cve: IMPROVE_KERNEL_SPDX_FILE is empty or file not found: ${IMPROVE_KERNEL_SPDX_FILE}"
-        return 0
-    fi
-    if [ ! -f "${CVE_CHECK_MANIFEST_JSON}" ]; then
-        bbwarn "improve_kernel_cve: CVE_CHECK file not found: ${CVE_CHECK_MANIFEST_JSON}. Skipping extra kernel vulnerabilities scouting."
-        return 0
-    fi
-    if [ ! -f "${improve_kernel_cve_script}" ]; then
-        bbwarn "improve_kernel_cve: improve_kernel_cve_report.py not found in ${COREBASE}."
-        return 0
-    fi
-    if [ ! -d "${STAGING_DATADIR_NATIVE}/vulns-native" ]; then
-        bbwarn "improve_kernel_cve: Vulnerabilities data not found in ${STAGING_DATADIR_NATIVE}/vulns-native."
-        return 0
-    fi
+    # Define input files and paths
+    spdx_file = d.getVar('IMPROVE_KERNEL_SPDX_FILE')
+    old_cve_report = d.getVar('CVE_CHECK_MANIFEST_JSON')
+    imgdeploydir = d.getVar('IMGDEPLOYDIR')
+    image_name = d.getVar('IMAGE_NAME')
+    image_basename = d.getVar('IMAGE_BASENAME')
+    image_machine_suffix = d.getVar('IMAGE_MACHINE_SUFFIX')
+    image_name_suffix = d.getVar('IMAGE_NAME_SUFFIX')
+    datadir = os.path.join(d.getVar('STAGING_DATADIR_NATIVE'), 'vulns-native')
+    new_cve_report = os.path.join(imgdeploydir, f"{image_name}.scouted.json")
 
-    #Run the improve_kernel_cve_report.py script
-    bbplain "improve_kernel_cve: Using SPDX file for extra kernel vulnerabilities scouting: ${IMPROVE_KERNEL_SPDX_FILE}"
-    python3 "${improve_kernel_cve_script}" \
-        --spdx "${IMPROVE_KERNEL_SPDX_FILE}" \
-        --old-cve-report "${CVE_CHECK_MANIFEST_JSON}" \
-        --new-cve-report "${new_cve_report_file}" \
-        --datadir "${STAGING_DATADIR_NATIVE}/vulns-native"
-    bbplain "improve CVE report with extra kernel cves: ${new_cve_report_file}"
+    if not spdx_file or not os.path.isfile(spdx_file):
+        bb.warn(f"improve_kernel_cve: IMPROVE_KERNEL_SPDX_FILE is empty or file not found: {spdx_file}")
+        return
+    if not old_cve_report or not os.path.isfile(old_cve_report):
+        bb.warn(f"improve_kernel_cve: CVE_CHECK file not found: {old_cve_report}. Skipping extra kernel vulnerabilities scouting.")
+        return
+    if not os.path.isdir(datadir):
+        bb.warn(f"improve_kernel_cve: Vulnerabilities data not found in {datadir}.")
+        return
 
-    #Create a symlink as every other JSON file in tmp/deploy/images
-    ln -sf ${IMAGE_NAME}.scouted.json ${IMGDEPLOYDIR}/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}${IMAGE_NAME_SUFFIX}.scouted.json
+    bb.note(f"improve_kernel_cve: Using SPDX file for extra kernel vulnerabilities scouting: {spdx_file}")
+    ikc.kernel_improve_cve_report(spdx_file, old_cve_report, new_cve_report, datadir)
+    bb.note(f"improve CVE report with extra kernel CVEs: {new_cve_report}")
+
+    symlink = os.path.join(imgdeploydir, f"{image_basename}{image_machine_suffix}{image_name_suffix}.scouted.json")
+    target = f"{image_name}.scouted.json"  # relative, not absolute
+    if os.path.islink(symlink) or os.path.exists(symlink):
+        os.remove(symlink)
+    os.symlink(target, symlink)
 }
-do_scout_extra_kernel_vulns[depends] += "vulns-native:do_populate_sysroot"
-do_scout_extra_kernel_vulns[nostamp] = "1"
-do_scout_extra_kernel_vulns[doc] = "Scout extra kernel vulnerabilities and create a new enhanced version of the cve_check file in the deploy directory"
-addtask do_scout_extra_kernel_vulns after do_rootfs before do_image_complete
+do_image_improve_kernel_cve_report[depends] += "vulns-native:do_populate_sysroot"
+do_image_improve_kernel_cve_report[nostamp] = "1"
+do_image_improve_kernel_cve_report[doc] = "Scout extra kernel vulnerabilities and create a new enhanced version of the cve_check file in the deploy directory"
+addtask do_image_improve_kernel_cve_report after do_rootfs before do_image_complete
