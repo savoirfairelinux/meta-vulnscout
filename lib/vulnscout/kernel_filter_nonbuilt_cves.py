@@ -69,6 +69,9 @@ def kernel_build_compiled_sources(kernel_root: str) -> List[str]:
 
     return sorted(sources)
 
+def _is_package_kernel(pkg: dict) -> bool:
+    return any(product["product"] == "linux_kernel" for product in pkg.get("products", []))
+
 def kernel_get_unpatched_cves(path: str) -> List[Dict[str, Optional[str]]]:
     """
     Load CVE JSON input and return all CVE entries where status is 'Unpatched'.
@@ -81,9 +84,12 @@ def kernel_get_unpatched_cves(path: str) -> List[Dict[str, Optional[str]]]:
         sys.exit(1)
 
     unfixed = []
+    matched_one_package = False
     for pkg in data["package"]:
-        if pkg.get("name", "") != "linux-yocto":
+        if not _is_package_kernel(pkg):
             continue
+
+        matched_one_package = True
         for cve in pkg.get("issue", []):
             if cve.get("status", "").strip() != "Unpatched":
                 continue
@@ -98,6 +104,9 @@ def kernel_get_unpatched_cves(path: str) -> List[Dict[str, Optional[str]]]:
                 "scorev4": cve.get("scorev4"),
                 "detail": cve.get("detail"),
             })
+    
+    if not matched_one_package:
+        print("WARNING: no package matched a linux kernel")
 
     return unfixed
 
@@ -196,7 +205,7 @@ def generate_kernel_filtered_cve_check(
     updated_count = 0
     kept_count = 0
     for pkg in data.get("package", []):
-        if pkg.get("name") != "linux-yocto":
+        if not _is_package_kernel(pkg):
             continue
         for issue in pkg.get("issue", []):
             iid = issue.get("id")
