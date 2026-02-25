@@ -50,6 +50,7 @@ INHERIT:remove = "create-spdx"
 The next time you launch Vulnscout, it will use SPDX3.
 
 Reverting these modifications will automatically make Vulnscout to use SPDX2.2 again.
+
 ## Extra VulnScout configuration for cve-check improvements
 
 `meta-vulnscout` provides other classes for accurate cve-check file generation:
@@ -62,10 +63,8 @@ To integrate this script, a .bbappend on the kernel recipe can be used to add `i
 It reduces CVE false positives by 70%-80% and provides detailed responses for all kernel-related CVEs by analyzing the files used to build the kernel. \
 To integrate this script, a .bbappend on the image recipe can be used to add `inherit improve_kernel_cve_report` as shown on the available example at meta-vulnscout/recipes-core/images/core-image-minimal.bbappend. \
 
--`kernel_filter_nonbuilt_cves.bbclass` can be used to update the cve-check file by removing CVEs based on elements that aren't present in the built kernel. A CVE linked with a driver that isn't compiled doesn't make your kernel vulnerable to it. \
-It reduces the number of kernel CVEs to deal with by around 70%. \
-To integrate this class, a simple `inherit kernel_filter_nonbuilt_cves` is required in the kernel recipe. After a kernel build tree, new files will be located in your deploy directory. A file with `.kernel_remaining_cves.json` extension will contain the remaining active cves, a second file with `.kernel_removed_cves.json` contains the details of CVEs that don't apply to your system. \
-Also, the virtual kernel cve-check file will be affected and the final cve-check manifest will be affected by this class analysis setting all nonbuilt CVEs to `Ignored` status with `details` set to `cve-not-compiled-in-kernel` and `description` to `kernel_filter_nonbuilt_cves detected that this CVE is not affecting the current kernel build.`.
+> [!NOTE]
+> To exclude kernel CVE if affected source files are not compiled, it is necessary to set `SPDX_INCLUDE_COMPILED_SOURCES` to `1` for the corresponding recipe. Typically in `local.conf`, the following line could be added: `SPDX_INCLUDE_COMPILED_SOURCES:pn-linux-yocto = "1"`
 
 ## Using VulnScout Web Interface
 
