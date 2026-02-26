@@ -41,21 +41,41 @@ BBLAYERS += "/path/to/meta-vulnscout"
 
 ## Configuration
 
-To enable and configure VulnScout, add `inherit vulnscout` in your image recipe.
+To enable and configure VulnScout, follow these 2 simple steps:
 
-Alternatively the class can be inherited in all image recipes automatically
-using IMAGE_CLASSES, by adding in your `local.conf`:
+1. First, add the following lines to your `local.conf` or distro config:
+
+```sh
+# Required settings for VulnScout
+include conf/distro/include/vulnscout-core.inc
+```
+
+2. Then, add `inherit vulnscout` in your image recipe, or add this line in your
+   `local.conf` or distro config to enable VulnScout in all image recipes:
 
 ```sh
 IMAGE_CLASSES += "vulnscout"
 ```
 
-This project contains an example as described in
-`recipes-core/images/core-image-minimal.bbappend`.
+
+The distro `poky-vulnscout` provided in this repo provides an example of a
+complete usage of meta-vulnscout features.
 
 ## Extra VulnScout configuration for cve-check improvements
 
-`meta-vulnscout` provides other classes for accurate cve-check file generation:
+`meta-vulnscout` provides other classes for accurate cve-check file generation.
+
+### Configuration
+
+Add this line to your distro config or `local.conf` to inherit the extra
+classes:
+
+```sh
+# Enable extra CVE analysis
+include conf/distro/include/vulnscout-cve-check.inc
+```
+
+### Description
 
 - `kernel_generate_cve_exclusions.bbclass` can be used to integrate a library
   `lib/vulnscout/generate_cve_exclusions_py` derived from the script
@@ -93,7 +113,8 @@ This project contains an example as described in
   file will be affected and the final cve-check manifest will be affected by
   this class analysis setting all non-built CVEs to `Ignored` status with
   `details` set to `cve-not-compiled-in-kernel` and `description` to
-  `kernel_filter_nonbuilt_cves detected that this CVE is not affecting the current kernel build.`
+  `kernel_filter_nonbuilt_cves detected that this CVE is not affecting the
+  current kernel build.`
 
 ## Using VulnScout Web Interface
 
