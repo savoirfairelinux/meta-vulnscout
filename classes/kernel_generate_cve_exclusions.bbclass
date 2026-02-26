@@ -2,6 +2,11 @@
 GENERATE_CVE_EXCLUSIONS_OUTPUT_JSON ?= "${T}/cve-exclusion_${LINUX_VERSION}.json"
 GENERATE_CVE_EXCLUSIONS_OUTPUT_INC  ?= "${T}/cve-exclusion_${LINUX_VERSION}.inc"
 
+python __anonymous() {
+    if not bb.data.inherits_class("cve-check", d):
+        bb.fatal("kernel_generate_cve_exclusion: must inherit cve-check for using this class")
+}
+
 def get_kernel_version(d):
     """Get kernel version from LINUX_VERSION, falling back to PV."""
     linux_version = d.getVar('LINUX_VERSION')
@@ -25,7 +30,7 @@ python do_generate_cve_exclusions() {
     output_inc = d.getVar('GENERATE_CVE_EXCLUSIONS_OUTPUT_INC')
 
     if not os.path.isdir(datadir):
-        bb.warn(f"generate-cve-exclusions: CVE exclusions source directory not found in {datadir}")
+        bb.warn(f"kernel_generate_cve_exclusion: CVE exclusions source directory not found in {datadir}")
         return
 
     bb.note(f"Generating CVE exclusions for kernel version {kernel_version}")
