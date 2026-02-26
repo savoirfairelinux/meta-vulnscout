@@ -1,6 +1,11 @@
 # Setting to specify the path to the SPDX file to be used for extra kernel vulnerabilities scouting
 IMPROVE_KERNEL_SPDX_FILE = "${DEPLOY_DIR_SPDX}/${@d.getVar('MACHINE').replace('-', '_')}/recipes/recipe-${PREFERRED_PROVIDER_virtual/kernel}.spdx.json"
 
+python __anonymous() {
+    if not bb.data.inherits_class("cve-check", d):
+        bb.fatal("improve_kernel_cve: must inherit cve-check for using this class")
+}
+
 python do_image_improve_kernel_cve_report() {
     import os
     import vulnscout.improve_kernel_cve_report as ikc

@@ -1,3 +1,8 @@
+python __anonymous() {
+    if not bb.data.inherits_class("cve-check", d):
+        bb.fatal("kernel_filter_nonbuilt_cves: must inherit cve-check for using this class")
+}
+
 python do_kernel_filter_nonbuilt_cves() {
     import os
     import vulnscout.kernel_filter_nonbuilt_cves as kf
@@ -16,13 +21,13 @@ python do_kernel_filter_nonbuilt_cves() {
 
     # Check that the required files exist before running the script
     if not os.path.isfile(input_cve_check):
-        bb.warn(f"kernel-filter-nonbuilt-cves: cve-check file not found: {input_cve_check}")
+        bb.warn(f"kernel_filter_nonbuilt_cves: cve-check file not found: {input_cve_check}")
         return
     if not os.path.isdir(vulns_path):
-        bb.warn(f"kernel-filter-nonbuilt-cves: Vulnerabilities data not found in {vulns_path}")
+        bb.warn(f"kernel_filter_nonbuilt_cves: Vulnerabilities data not found in {vulns_path}")
         return
     if not os.path.isdir(kernel_build_path):
-        bb.warn(f"kernel-filter-nonbuilt-cves: Kernel build directory not found: {kernel_build_path}")
+        bb.warn(f"kernel_filter_nonbuilt_cves: Kernel build directory not found: {kernel_build_path}")
         return
 
     # Step 1: Load Unpatched CVEs
