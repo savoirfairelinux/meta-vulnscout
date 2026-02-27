@@ -37,7 +37,7 @@ check_vulnscout_requirements() {
     SCOUTED_CVE_CHECK_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.scouted.json"
 
     # Check the CVE-Check already exist
-    if ${@'true' if d.getVarFlag('do_scout_extra_kernel_vulns', 'task') else 'false'}; then
+    if ${@'true' if d.getVarFlag('do_image_improve_kernel_cve_report', 'task') else 'false'}; then
         if [ ! -e "${SCOUTED_CVE_CHECK_PATH}" ]; then
             bbfatal "Scouted CVE-Check file not found at ${SCOUTED_CVE_CHECK_PATH}. Please rebuild the image."
         fi
@@ -83,7 +83,7 @@ EOF
 
     # Adding volumes to the docker-compose yml file
     if ${@bb.utils.contains('INHERIT', 'cve-check', 'true', 'false', d)}; then
-        if ${@'true' if d.getVarFlag('do_scout_extra_kernel_vulns', 'task') else 'false'}; then
+        if ${@'true' if d.getVarFlag('do_image_improve_kernel_cve_report', 'task') else 'false'}; then
             CVE_CHECK_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.scouted.json"
         else
             CVE_CHECK_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json"
