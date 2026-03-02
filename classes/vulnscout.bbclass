@@ -106,9 +106,15 @@ EOF
 
     echo "      - ./output:/scan/outputs:Z" >> "${VULNSCOUT_COMPOSE_FILE}"
 
+    if [ ! -d "${VULNSCOUT_CACHE_DIR}" ]; then
+        mkdir -p "${VULNSCOUT_CACHE_DIR}"
+    fi
     VULNSCOUT_CACHE_DIR_RELATIVE="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${VULNSCOUT_CACHE_DIR}")"
     echo "      - ${VULNSCOUT_CACHE_DIR_RELATIVE}:/cache/vulnscout:Z" >> "${VULNSCOUT_COMPOSE_FILE}"
 
+    if [ ! -d "${VULNSCOUT_CUSTOM_TEMPLATES_DIR}" ]; then
+        mkdir -p "${VULNSCOUT_CUSTOM_TEMPLATES_DIR}"
+    fi
     VULNSCOUT_CUSTOM_TEMPLATES_DIR_RELATIVE="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${VULNSCOUT_CUSTOM_TEMPLATES_DIR}")"
     echo "      - ${VULNSCOUT_CUSTOM_TEMPLATES_DIR_RELATIVE}:/scan/templates:Z" >> "${VULNSCOUT_COMPOSE_FILE}"
 
