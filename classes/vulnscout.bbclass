@@ -3,6 +3,7 @@ VULNSCOUT_ROOT_DIR ?= "${TOPDIR}/.."
 VULNSCOUT_BASE_DIR ?= "${VULNSCOUT_ROOT_DIR}/.vulnscout"
 VULNSCOUT_DEPLOY_DIR ?= "${VULNSCOUT_BASE_DIR}/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}"
 VULNSCOUT_CACHE_DIR ?= "${VULNSCOUT_BASE_DIR}/cache"
+VULNSCOUT_CUSTOM_TEMPLATES_DIR ?= "${VULNSCOUT_BASE_DIR}/custom_templates"
 VULNSCOUT_COMPOSE_FILE ?= "${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
 
 # Repo and version of vulnscout to use
@@ -60,7 +61,7 @@ check_vulnscout_requirements() {
 do_setup_vulnscout() {
     check_vulnscout_requirements
 
-    # Create a output directory for vulnscout configuration
+    # Create an output directory for vulnscout configuration
     mkdir -p ${VULNSCOUT_DEPLOY_DIR}
 
     if [ ! -e "${VULNSCOUT_BASE_DIR}/.gitignore" ]; then
@@ -100,10 +101,16 @@ EOF
         SPDX_RELATIVE_PATH="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.tar.zst")"
         echo "      - ${SPDX_RELATIVE_PATH}:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.tar.zst:ro,Z" >> "${VULNSCOUT_COMPOSE_FILE}"
     fi
+
     ${@bb.utils.contains('INHERIT', 'cyclonedx-export', 'echo "      - $(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${DEPLOY_DIR}/cyclonedx-export"):/scan/inputs/cdx:ro" >> ${VULNSCOUT_COMPOSE_FILE}', '', d)}
-    VULNSCOUT_CACHE_DIR_RELATIVE="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${VULNSCOUT_CACHE_DIR}")"
+
     echo "      - ./output:/scan/outputs:Z" >> "${VULNSCOUT_COMPOSE_FILE}"
+
+    VULNSCOUT_CACHE_DIR_RELATIVE="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${VULNSCOUT_CACHE_DIR}")"
     echo "      - ${VULNSCOUT_CACHE_DIR_RELATIVE}:/cache/vulnscout:Z" >> "${VULNSCOUT_COMPOSE_FILE}"
+
+    VULNSCOUT_CUSTOM_TEMPLATES_DIR_RELATIVE="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${VULNSCOUT_CUSTOM_TEMPLATES_DIR}")"
+    echo "      - ${VULNSCOUT_CUSTOM_TEMPLATES_DIR_RELATIVE}:/scan/templates:Z" >> "${VULNSCOUT_COMPOSE_FILE}"
 
     # Add environnement variables
     cat >> ${VULNSCOUT_COMPOSE_FILE} <<EOF
