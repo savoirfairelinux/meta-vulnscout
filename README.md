@@ -1,85 +1,129 @@
-![Vulnscout logo](./doc/vulnscout-logo.jpeg?raw=true)
+![VulnScout logo](./doc/vulnscout-logo.jpeg?raw=true)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-`meta-vulnscout` is a Yocto meta-layer that uses `vulnscout` to scan a project, export its Software Bill of Materials (SBOM), and list the vulnerabilities that affect it.
-Support for Cyclone DX, SPDX, Yocto JSON files, and Open VEX.
+`meta-vulnscout` is a Yocto meta-layer that uses
+[VulnScout](https://vulnscout.io) to scan a project, export its Software Bill of
+Materials (SBOM), and list the vulnerabilities affecting it.
+
+Currently the supported formats are: CycloneDX, SPDX, Yocto JSON files, and
+OpenVEX.
 
 ## Requirements
 
-The command `docker-compose` or `docker compose` should be available on the host device.
+- `docker-compose` or `docker compose` command
 
-The `python3-packaging` package should be installed on the build host. If you are running in CQFD, you should add it in `.cqfd/docker/Dockerfile`.
+- `python3-packaging` package. If you are running in CQFD, you should add it in
+  `.cqfd/docker/Dockerfile`.
 
 ##  Installation
 
-To install this meta-layer, simply clone the repository into the `sources` directory and add it to your `build/conf/bblayers.conf` file:
+Clone the repository into the `sources` directory and add it to your
+`build/conf/bblayers.conf` file:
 
-```shell
-$ cd sources
-$ git clone https://github.com/savoirfairelinux/meta-vulnscout.git
+```sh
+cd sources
+git clone https://github.com/savoirfairelinux/meta-vulnscout.git
 ```
-And in your `bblayers.conf` file:
 
-```shell
+And in your `bblayers.conf` file add the line:
+
+```sh
 BBLAYERS += "/path/to/meta-vulnscout"
 ```
 
 ## Configuration
 
-To enable and configure Vulnscout, you simply add `inherit vulnscout` in your image recipe.
+To enable and configure VulnScout, add `inherit vulnscout` in your image recipe.
 
-This project contains an example as described in `recipes-core/images/core-image-minimal.bbappend`.
+Alternatively the class can be inherited in all image recipes automatically
+using IMAGE_CLASSES, by adding in your `local.conf`:
+
+```sh
+IMAGE_CLASSES += "vulnscout"
+```
+
+This project contains an example as described in
+`recipes-core/images/core-image-minimal.bbappend`.
 
 ### Select the SPDX version to use
 
-In a recent update, Yocto Scarthgap now support the use of SPDX3 and so is meta-vulnscout.
-By default meta-vulnscout still use SPDX2-2 as Scarthgap.
+Since version 5.0.15, Yocto Scarthgap supports the use of SPDX3 and so is
+meta-vulnscout. By default meta-vulnscout still uses SPDX2.2 in Scarthgap.
 
-To verify if your project can use SPDX3, check if the following bbclass file exist under your `poky` folder:
-`meta/classes/create-spdx-3.0.bbclass`
+To verify if your project can use SPDX3, check if the following bbclass file
+exist under your `poky` folder: `meta/classes/create-spdx-3.0.bbclass`.
 
-If not you need to update your poky repo with `git pull`
+If not you need to update your poky repo with `git pull`.
 
-To use the SPDX3 with meta-vulnscout you need to modify the `conf/layer.conf` file:
-Change the `INHERIT` variable and add a `INHERIT:remove`.
+To use the SPDX3 with meta-vulnscout you need to modify your local.conf file by
+adding: 
 
-```bash
+```sh
 INHERIT += "create-spdx-3.0"
 INHERIT:remove = "create-spdx"
 ```
-The next time you launch Vulnscout, it will use SPDX3.
+The next time you launch VulnScout, it will use SPDX3.
 
-Reverting these modifications will automatically make Vulnscout to use SPDX2.2 again.
+Reverting these modifications will automatically make VulnScout to use SPDX2.2
+again.
+
 ## Extra VulnScout configuration for cve-check improvements
 
 `meta-vulnscout` provides other classes for accurate cve-check file generation:
 
--`kernel_generate_cve_exclusions.bbclass` can be used to integrate a library `lib/vulnscout/generate_cve_exclusions_py` derived from the script [genere-cve-exclusion](https://docs.yoctoproject.org/dev/singleindex.html#generate-cve-exclusions-py). \
-It provides extra kernel CVE details and information through the variable `CVE_STATUS`. \
-To integrate this script, a .bbappend on the kernel recipe can be used to add `inherit kernel_generate_cve_exclusions` as shown on the available example at meta-vulnscout/recipes-kernel/linux/linux-yocto_%.bbappend
+- `kernel_generate_cve_exclusions.bbclass` can be used to integrate a library
+  `lib/vulnscout/generate_cve_exclusions_py` derived from the script
+  [generate-cve-exclusions.py](https://docs.yoctoproject.org/dev/singleindex.html#generate-cve-exclusions-py).
+  \
+  It provides extra kernel CVE details and information through the variable
+  `CVE_STATUS`. \
+  To integrate this script, a .bbappend on the kernel recipe can be used to add
+  `inherit kernel_generate_cve_exclusions` as shown on the available example at
+  `meta-vulnscout/recipes-kernel/linux/linux-yocto_%.bbappend`
 
--`improve_kernel_cve_report.bbclass` can be used to integrate the script `improve_kernel_cve_report.py` (reference : [improve_kernel_cve_report](https://docs.yoctoproject.org/dev/singleindex.html#improve-kernel-cve-report-py)). \
-It reduces CVE false positives by 70%-80% and provides detailed responses for all kernel-related CVEs by analyzing the files used to build the kernel. \
-To integrate this script, a .bbappend on the image recipe can be used to add `inherit improve_kernel_cve_report` as shown on the available example at meta-vulnscout/recipes-core/images/core-image-minimal.bbappend. \
 
--`kernel_filter_nonbuilt_cves.bbclass` can be used to update the cve-check file by removing CVEs based on elements that aren't present in the built kernel. A CVE linked with a driver that isn't compiled doesn't make your kernel vulnerable to it. \
-It reduces the number of kernel CVEs to deal with by around 70%. \
-To integrate this class, a simple `inherit kernel_filter_nonbuilt_cves` is required in the kernel recipe. After a kernel build tree, new files will be located in your deploy directory. A file with `.kernel_remaining_cves.json` extension will contain the remaining active cves, a second file with `.kernel_removed_cves.json` contains the details of CVEs that don't apply to your system. \
-Also, the virtual kernel cve-check file will be affected and the final cve-check manifest will be affected by this class analysis setting all nonbuilt CVEs to `Ignored` status with `details` set to `cve-not-compiled-in-kernel` and `description` to `kernel_filter_nonbuilt_cves detected that this CVE is not affecting the current kernel build.`.
+- `improve_kernel_cve_report.bbclass` can be used to integrate the script
+  `improve_kernel_cve_report.py` (reference :
+  [improve_kernel_cve_report](https://docs.yoctoproject.org/dev/singleindex.html#improve-kernel-cve-report-py)).
+  \
+  It reduces CVE false positives by 70%-80% and provides detailed responses
+  for all kernel-related CVEs by analyzing the files used to build the kernel. \
+  To integrate this script, a .bbappend on the image recipe can be used to add
+  `inherit improve_kernel_cve_report` as shown on the available example at
+  `meta-vulnscout/recipes-core/images/core-image-minimal.bbappend` 
+
+- `kernel_filter_nonbuilt_cves.bbclass` can be used to update the cve-check file
+  by removing CVEs based on elements that aren't present in the built kernel. A
+  CVE linked with a driver that isn't compiled doesn't make your kernel
+  vulnerable to it. \
+  It reduces the number of kernel CVEs to deal with by
+  around 70%. \
+  To integrate this class, a simple `inherit kernel_filter_nonbuilt_cves` is
+  required in the kernel recipe. After a kernel
+  build tree, new files will be located in your deploy directory. A file with
+  `.kernel_remaining_cves.json` extension will contain the remaining active
+  CVEs, a second file with `.kernel_removed_cves.json` contains the details of
+  CVEs that don't apply to your system. \ Also, the virtual kernel cve-check
+  file will be affected and the final cve-check manifest will be affected by
+  this class analysis setting all non-built CVEs to `Ignored` status with
+  `details` set to `cve-not-compiled-in-kernel` and `description` to
+  `kernel_filter_nonbuilt_cves detected that this CVE is not affecting the current kernel build.`
 
 ## Using VulnScout Web Interface
 
-After a normal build, you should see a new `.vulnscout` folder in `${TOPDIR}/..` (can be modified with variable `VULNSCOUT_ROOT_DIR`).
+After a normal build, you should see a new `.vulnscout` folder in `${TOPDIR}/..`
+(can be modified with variable `VULNSCOUT_ROOT_DIR`).
 
-The scan and analysis of vulnerabilities can start with the yocto command:
+The scan and analysis of vulnerabilities can be started with:
 
-```shell
+```sh
 bitbake core-image-minimal -c vulnscout
 ```
 
-VulnScout Docker container can also be started without rescanning for new CVEs with the following command:
+VulnScout Docker container can also be started without rescanning for new CVEs
+with the following command:
 
-```shell
+```sh
 bitbake core-image-minimal -c do_vulnscout_no_scan
 ```
 
@@ -89,89 +133,110 @@ Or you can do it manually with the command:
 docker compose -f "<project_root>/.vulnscout/core-image-minimal/docker-compose.yml" up
 ```
 
-Without a custom configuration, a web interface will be started at the address `http://localhost:7275`.
+Without a custom configuration, a web interface will be started at the address
+`http://localhost:7275`.
 
 ## Using VulnScout with a CI
 
-It is possible to launch Vulnscout in a CI mode, without the web interface.
-To launch `vulnscout` in a CI mode, use this command:
-```bash
+It is possible to launch VulnScout in a CI mode, without the web interface using
+the command:
+
+```sh
 bitbake core-image-minimal -c vulnscout_ci
 ```
-All the files generated by `vulnscout` will be placed by default here: *<project_root>/.vulnscout/core-image-minimal/output*
+All the files generated by `vulnscout` will be placed by default here:
+`<project_root>/.vulnscout/core-image-minimal/output`
 
-**Options**\
-`vulnscout` in CI mode can be launched with a specific `fail condition` using an environment variable.
+### Options
 
-First you need to export the environment variable `BB_ENV_PASSTHROUGH="VULNSCOUT_FAIL_CONDITION"`\
+`vulnscout` in CI mode can be launched with a specific _fail condition_ using an
+environment variable.
+
+First you need to export the environment variable
+`BB_ENV_PASSTHROUGH_ADDITIONS+=" VULNSCOUT_FAIL_CONDITION"`\
 Either way, by using the `export` command:
 
 ```bash
-export BB_ENV_PASSTHROUGH="VULNSCOUT_FAIL_CONDITION"
+export BB_ENV_PASSTHROUGH_ADDITIONS+=" VULNSCOUT_FAIL_CONDITION"
 ```
+
 Or every time you launch `vulnscout` in the CI mode:
 
 ```bash
-BB_ENV_PASSTHROUGH="VULNSCOUT_FAIL_CONDITION" bitbake core-image-minimal -c vulnscout_ci
+BB_ENV_PASSTHROUGH_ADDITIONS+=" VULNSCOUT_FAIL_CONDITION" bitbake core-image-minimal -c vulnscout_ci
 ```
-Now you can precise the fail condition with the `VULNSCOUT_FAIL_CONDITION` variable every time you use `vulnscout` in CI mode:
+Now you can specify the fail condition with the `VULNSCOUT_FAIL_CONDITION`
+variable every time you use `vulnscout` in CI mode:
 
 ```bash
-VULNSCOUT_FAIL_CONDITION="cvss >= 9.0" BB_ENV_PASSTHROUGH="VULNSCOUT_FAIL_CONDITION" bitbake core-image-minimal -c vulnscout_ci
+VULNSCOUT_FAIL_CONDITION="cvss >= 9.0" BB_ENV_PASSTHROUGH_ADDITIONS+=" VULNSCOUT_FAIL_CONDITION" bitbake core-image-minimal -c vulnscout_ci
 ```
-With this command, `vulnscout` will list all the CVEs of the vulnerabilities with a CVSS score equal to or higher than 9.0.
+
+With this command, `vulnscout` will list all the CVEs of the vulnerabilities
+with a CVSS score equal to or higher than 9.0.
 
 It's possible to set more than one condition:
-
 ```bash
 VULNSCOUT_FAIL_CONDITION="cvss >= 9.0 or (cvss >= 7.0 and epss >= 50%)" bitbake core-image-minimal -c vulnscout_ci
 ```
-With this command, `vulnscout` will list all vulnerabilities critical (CVSS >= 9.0) or those with both a high CVSS and EPSS score.
+
+With this command, `vulnscout` will list all vulnerabilities critical (CVSS >=
+9.0) or those with both a high CVSS and EPSS score.
 
 > [!NOTE]
-> Setting up the fail condition this way will overload the "VULNSCOUT_ENV_FAIL_CONDITION" variable in the *vulnscout.bbclass*
+> Setting up the fail condition this way will overload the
+> "VULNSCOUT_ENV_FAIL_CONDITION" variable in the *vulnscout.bbclass*
 
 > [!WARNING]
-> If you set the "VULNSCOUT_FAIL_CONDITION" with the `export` command in your shell, it will always uses it until you set it to null
+> If you set the "VULNSCOUT_FAIL_CONDITION" with the `export` command in your
+> shell, it will always uses it until you set it to null
 
 ## Accelerate NVD database download
 
-Also, for a faster NVD database downloading during VulnScout setup, you can set a NVD key with the variable `NVDCVE_API_KEY`.
+For a faster NVD database downloading during VulnScout setup, you can set a NVD
+key with the variable `NVDCVE_API_KEY`.
 
 Yocto Documentation reference : https://docs.yoctoproject.org/ref-manual/variables.html#term-NVDCVE_API_KEY
 
-You can generate a new NVD key at :  https://nvd.nist.gov/developers/request-an-api-key
+You can generate a new NVD key at : https://nvd.nist.gov/developers/request-an-api-key
 
 ## Using the web interface with a building Docker container
 
-The Yocto task `vulnscout` creates and starts the Docker container with a Web interface available.
+The Yocto task `vulnscout` creates and starts the Docker container with a Web
+interface available.
 
-Using a Docker container to build the project requires additional configuration to access the web interface.
+Using a Docker container to build the project requires additional configuration
+to access the web interface.
 
-Indeed, the web interface won't be mapped to the host if the building Docker container is not properly configured.
+Indeed, the web interface won't be mapped to the host if the building Docker
+container is not properly configured.
 
-CQFD requires adding `docker-compose-v2` to your *.cfqd/docker/Dockerfile* and exporting the following variable:
+CQFD requires adding `docker-compose-v2` to your `.cfqd/docker/Dockerfile` and
+exporting the following variable:
 
 ``` bash
 export CQFD_EXTRA_RUN_ARGS="-v /run/docker.sock:/run/docker.sock"
 ```
 
-For a permanent change, you can instead modify the *.cqfdrc* file with
+For a permanent change, you can instead modify the `.cqfdrc` file with
 `docker_run_args="-v /run/docker.sock:/run/docker.sock"`.
 
-Now, you can build your image and use the `vulnscout` task with one of these commands:
+Now, you can build your image and use the `vulnscout` task with one of these
+commands:
 
 **If you use CQFD and KAS**
 ``` bash
 cqfd kas shell -c "bitbake -c <your_Yocto_image> -c vulnscout"
 ```
-**If you use CQFD and the script build.sh made by Savoir-Faire Linux**
+
+**If you use CQFD and the script build.sh made by Savoir-faire Linux**
 ```bash
 cqfd run ./build.sh -- bitbake <your_Yocto_image> -c vulnscout
 ```
 
 If the container can't be configured (e.g., with kas-container).
-Vulnscout web interface can still be run directly on the host with the ' docker-compose` command.
+VulnScout web interface can still be run directly on the host with the
+`docker-compose` command.
 
 ## Result
 
@@ -179,6 +244,6 @@ Vulnscout web interface can still be run directly on the host with the ' docker-
 
 ## License
 
-`Copyright (C) 2017-2025 Savoir-faire Linux, Inc.`
+`Copyright (C) 2025-2026 Savoir-faire Linux, Inc.`
 
-meta-vulnscout is released under the Apache 2 license.
+meta-vulnscout is released under the Apache License 2.0.
