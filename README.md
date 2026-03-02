@@ -177,6 +177,27 @@ With this command, `vulnscout` will list all vulnerabilities critical (CVSS >=
 > If you set the "VULNSCOUT_FAIL_CONDITION" with the `export` command in your
 > shell, it will always uses it until you set it to null
 
+## Add custom export templates
+
+VulnScout supports additional custom templates for export files. These templates
+can be stored in the folder `.vulnscout/custom_templates`, and should follow the
+template format of VulnScout.
+
+To use custom templates, specify their names in your `local.conf` using:
+```sh
+VULNSCOUT_ENV_GENERATE_DOCUMENTS = "template1.adoc,template2.csv"
+```
+
+Some default templates are already included in VulnScout:
+
+- `all_assessments.adoc`
+- `summary.adoc`
+- `time_estimates.csv`
+- `vulnerabilities.csv`
+- `vulnerability_summary.txt`
+
+They can be used in `VULNSCOUT_ENV_GENERATE_DOCUMENTS`.
+
 ## Accelerate NVD database download
 
 For a faster NVD database downloading during VulnScout setup, you can set a NVD
