@@ -45,28 +45,6 @@ IMAGE_CLASSES += "vulnscout"
 This project contains an example as described in
 `recipes-core/images/core-image-minimal.bbappend`.
 
-### Select the SPDX version to use
-
-Since version 5.0.15, Yocto Scarthgap supports the use of SPDX3 and so is
-meta-vulnscout. By default meta-vulnscout still uses SPDX2.2 in Scarthgap.
-
-To verify if your project can use SPDX3, check if the following bbclass file
-exist under your `poky` folder: `meta/classes/create-spdx-3.0.bbclass`.
-
-If not you need to update your poky repo with `git pull`.
-
-To use the SPDX3 with meta-vulnscout you need to modify your local.conf file by
-adding: 
-
-```sh
-INHERIT += "create-spdx-3.0"
-INHERIT:remove = "create-spdx"
-```
-The next time you launch VulnScout, it will use SPDX3.
-
-Reverting these modifications will automatically make VulnScout to use SPDX2.2
-again.
-
 ## Extra VulnScout configuration for cve-check improvements
 
 `meta-vulnscout` provides other classes for accurate cve-check file generation:
