@@ -25,6 +25,14 @@ cd sources
 git clone https://github.com/savoirfairelinux/meta-vulnscout.git
 ```
 
+If you are using submodules to manage your sub-repos, you should include this
+meta-layer using the following commands:
+
+```shell
+$ cd sources
+$ git submodule add https://github.com/savoirfairelinux/meta-vulnscout.git
+```
+
 And in your `bblayers.conf` file add the line:
 
 ```sh
@@ -210,8 +218,9 @@ to access the web interface.
 Indeed, the web interface won't be mapped to the host if the building Docker
 container is not properly configured.
 
-CQFD requires adding `docker-compose-v2` to your `.cfqd/docker/Dockerfile` and
-exporting the following variable:
+CQFD requires adding `docker-compose` (for Ubuntu 22.04 and earlier) or
+`docker-compose-v2` (for Ubuntu 24.04 and later) to your
+*.cfqd/docker/Dockerfile* and exporting the following variable:
 
 ``` bash
 export CQFD_EXTRA_RUN_ARGS="-v /run/docker.sock:/run/docker.sock"
