@@ -267,6 +267,13 @@ If the container can't be configured (e.g., with kas-container).
 VulnScout web interface can still be run directly on the host with the
 `docker-compose` command.
 
+## Using [meta-sbom-cve-check](https://github.com/bootlin/meta-sbom-cve-check)
+
+The output of `meta-sbom-cve-check` is supported in VulnScout. However, this
+layer is incompatible with the cve-check improvements provided in
+`meta-vulnscout`. As a consequence, do not use
+`conf/distro/include/vulnscout-cve-check.inc` with `meta-sbom-cve-check`.
+
 ## Result
 
 ![Screenshot](doc/vulnscout-ui.png)
