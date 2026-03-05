@@ -47,7 +47,7 @@ To enable and configure VulnScout, follow these 2 simple steps:
 
 ```sh
 # Required settings for VulnScout
-include conf/distro/include/vulnscout-core.inc
+require conf/distro/include/vulnscout-core.inc
 ```
 
 2. Then, add `inherit vulnscout` in your image recipe, or add this line in your
@@ -72,7 +72,7 @@ classes:
 
 ```sh
 # Enable extra CVE analysis
-include conf/distro/include/vulnscout-cve-check.inc
+require conf/distro/include/vulnscout-cve-check.inc
 ```
 
 ### Description
