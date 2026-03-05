@@ -41,22 +41,28 @@ BBLAYERS += "/path/to/meta-vulnscout"
 
 ## Configuration
 
-To enable and configure VulnScout, follow these 2 simple steps:
-
-1. First, add the following lines to your `local.conf` or distro config:
+To enable and configure VulnScout, add the following lines to your `local.conf`
+or distro config:
 
 ```sh
 # Required settings for VulnScout
 require conf/distro/include/vulnscout-core.inc
 ```
 
-2. Then, add `inherit vulnscout` in your image recipe, or add this line in your
-   `local.conf` or distro config to enable VulnScout in all image recipes:
+This configuration enables VulnScout for all image recipes and should be
+sufficient for most users. If you want more fine-grained control on which images
+are enabling VulnScout, then you can add to your `local.conf` or distro config:
 
 ```sh
-IMAGE_CLASSES += "vulnscout"
+# Inherit create-spdx to generate SBOMs
+# May be required if not using poky distro
+INHERIT += "create-spdx"
+
+HOSTTOOLS_NONFATAL += "docker-compose docker"
 ```
 
+And then manually `inherit vulnscout` in specific image recipes to enable
+VulnScout.
 
 The distro `poky-vulnscout` provided in this repo provides an example of a
 complete usage of meta-vulnscout features.
