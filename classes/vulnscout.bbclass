@@ -20,6 +20,7 @@ VULNSCOUT_ENV_FLASK_RUN_HOST ?= "0.0.0.0"
 VULNSCOUT_ENV_GENERATE_DOCUMENTS ?= "summary.adoc,time_estimates.csv"
 VULNSCOUT_ENV_IGNORE_PARSING_ERRORS ?= 'false'
 VULNSCOUT_ENV_CVE_CHECK_EXCLUDE_PATCHED ?= "false"
+VULNSCOUT_ENV_PASSTHROUGH ?= ""
 
 python __anonymous() {
     if bb.data.inherits_class("sbom-cve-check", d):
@@ -67,7 +68,7 @@ check_vulnscout_requirements() {
     fi
 }
 
-do_setup_vulnscout() {
+setup_vulnscout_main() {
     check_vulnscout_requirements
 
     # Create an output directory for vulnscout configuration
@@ -172,6 +173,18 @@ EOF
 
     bbplain "Vulnscout Setup Succeed: Docker Compose file set at ${VULNSCOUT_COMPOSE_FILE}"
     bbplain "Vulnscout Info: After the build you can start web interface with the command 'docker-compose -f ${VULNSCOUT_COMPOSE_FILE} up'"
+}
+
+python setup_vulnscout_env() {
+    env_passthrough = (d.getVar("VULNSCOUT_ENV_PASSTHROUGH") or "").split()
+    for varname in env_passthrough:
+        with open(d.getVar("VULNSCOUT_COMPOSE_FILE"), "a") as myfile:
+            myfile.write(f"      - VULNSCOUT_TPL_{varname}={d.getVar(varname)}\n")
+}
+
+python do_setup_vulnscout() {
+    bb.build.exec_func("setup_vulnscout_main", d)
+    bb.build.exec_func("setup_vulnscout_env", d)
 }
 do_setup_vulnscout[doc] = "Configure the yaml file required to start VulnScout in VULNSCOUT_DEPLOY_DIR"
 
@@ -343,10 +356,21 @@ addtask vulnscout after do_setup_vulnscout
 python do_vulnscout_no_scan(){
     # Call the check_vulnscout_requirements function to check requirements
     # before launching vulnscout
-    bb.build.exec_func("check_vulnscout_requirements",d)
+    bb.build.exec_func("check_vulnscout_requirements", d)
     # Call the vulnscout task to start the docker container
-    bb.build.exec_func("do_vulnscout",d)
+    bb.build.exec_func("do_vulnscout", d)
 }
 do_vulnscout_no_scan[nostamp] = "1"
 do_vulnscout_no_scan[doc] = "Open a new terminal and launch VulnScout web interface in a Docker container without scanning the image"
 addtask vulnscout_no_scan
+
+python do_vulnscout_ci_no_scan(){
+    # Call the check_vulnscout_requirements function to check requirements
+    # before launching vulnscout
+    bb.build.exec_func("check_vulnscout_requirements", d)
+    # Call the vulnscout task to start the docker container
+    bb.build.exec_func("do_vulnscout_ci", d)
+}
+do_vulnscout_ci_no_scan[nostamp] = "1"
+do_vulnscout_ci_no_scan[doc] = "Launch VulnScout in non-interactive mode without scanning the image. VULNSCOUT_FAIL_CONDITION can be used to set a fail condition"
+addtask vulnscout_ci_no_scan
