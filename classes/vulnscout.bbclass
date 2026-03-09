@@ -20,7 +20,6 @@ VULNSCOUT_ENV_FLASK_RUN_HOST ?= "0.0.0.0"
 VULNSCOUT_ENV_GENERATE_DOCUMENTS ?= "summary.adoc,time_estimates.csv"
 VULNSCOUT_ENV_IGNORE_PARSING_ERRORS ?= 'false'
 VULNSCOUT_ENV_CVE_CHECK_EXCLUDE_PATCHED ?= "false"
-VULNSCOUT_ENV_PASSTHROUGH ?= ""
 
 python __anonymous() {
     if bb.data.inherits_class("sbom-cve-check", d):
@@ -176,10 +175,24 @@ EOF
 }
 
 python setup_vulnscout_env() {
-    env_passthrough = (d.getVar("VULNSCOUT_ENV_PASSTHROUGH") or "").split()
+    import os
+    import re
+
+    generates_documents = (d.getVar("VULNSCOUT_ENV_GENERATE_DOCUMENTS") or "").split(",")
+    custom_tpl_dir = d.getVar("VULNSCOUT_CUSTOM_TEMPLATES_DIR") or ""
+    custom_tpl_list = os.scandir(custom_tpl_dir) if custom_tpl_dir else []
+    custom_templates = [tpl.name for tpl in custom_tpl_list if tpl.name in generates_documents]
+    env_regex = r'{{[ ]*env\([\'\"](\w*)[\'\"],?.*\)[ ]*}}'
+    env_passthrough = set()
+    for tpl in custom_templates:
+        with open(os.path.join(custom_tpl_dir, tpl)) as f:
+            for line in f.readlines():
+                for match in re.finditer(env_regex, line):
+                    env_passthrough.add(match.group(1))
     for varname in env_passthrough:
-        with open(d.getVar("VULNSCOUT_COMPOSE_FILE"), "a") as myfile:
-            myfile.write(f"      - VULNSCOUT_TPL_{varname}={d.getVar(varname)}\n")
+        with open(d.getVar("VULNSCOUT_COMPOSE_FILE"), "a") as f:
+            if d.getVar(varname):
+                f.write(f"      - VULNSCOUT_TPL_{varname}={d.getVar(varname)}\n")
 }
 
 python do_setup_vulnscout() {
