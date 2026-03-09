@@ -208,7 +208,7 @@ With this command, `vulnscout` will list all vulnerabilities critical (CVSS >=
 
 VulnScout supports additional custom templates for export files. These templates
 can be stored in the folder `.vulnscout/custom_templates`, and should follow the
-template format of VulnScout.
+[template format of VulnScout](https://github.com/savoirfairelinux/vulnscout/blob/main/doc/WRITING_TEMPLATES.adoc).
 
 To use custom templates, specify their names in your `local.conf` using:
 ```sh
@@ -224,6 +224,14 @@ Some default templates are already included in VulnScout:
 - `vulnerability_summary.txt`
 
 They can be used in `VULNSCOUT_ENV_GENERATE_DOCUMENTS`.
+
+### Use environment variables in templates
+
+In VulnScout templates, you can use environment variables as stated in the
+documentation. These variables should be automatically detected if they are in a
+template in the `custom_templates` directory, and that the template is in use in
+`VULNSCOUT_ENV_GENERATE_DOCUMENTS`. Then the content of the variable is appended
+to the environment in the docker compose file with `VULNSCOUT_TPL_` prefix.
 
 ## Accelerate NVD database download
 
