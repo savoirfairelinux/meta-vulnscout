@@ -350,3 +350,14 @@ python do_vulnscout_no_scan(){
 do_vulnscout_no_scan[nostamp] = "1"
 do_vulnscout_no_scan[doc] = "Open a new terminal and launch VulnScout web interface in a Docker container without scanning the image"
 addtask vulnscout_no_scan
+
+python do_vulnscout_ci_no_scan(){
+    # Call the check_vulnscout_requirements function to check requirements
+    # before launching vulnscout
+    bb.build.exec_func("check_vulnscout_requirements",d)
+    # Call the vulnscout task to start the container
+    bb.build.exec_func("do_vulnscout_ci",d)
+}
+do_vulnscout_ci_no_scan[nostamp] = "1"
+do_vulnscout_ci_no_scan[doc] = "Open a new terminal and launch VulnScout web interface in a Docker or Podman container without scanning the image"
+addtask vulnscout_ci_no_scan
