@@ -7,7 +7,7 @@ VULNSCOUT_CUSTOM_TEMPLATES_DIR ?= "${VULNSCOUT_BASE_DIR}/custom_templates"
 VULNSCOUT_COMPOSE_FILE ?= "${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
 
 # Repo and version of vulnscout to use
-VULNSCOUT_VERSION ?= "v0.11.0"
+VULNSCOUT_VERSION ?= "v0.11.1"
 VULNSCOUT_DOCKER_IMAGE ?= "sflinux/vulnscout"
 VULNSCOUT_GIT_URI ?= "https://github.com/savoirfairelinux/vulnscout.git"
 
