@@ -32,6 +32,58 @@ python __anonymous() {
         bb.fatal("Neither create-spdx, nor create-spdx-3.0, nor create-spdx-2.2 class is inherited, please inherit one of these classes in your distro config or local.conf.")
 }
 
+def oe_terminal_no_spawn(command, d):
+    import oe.data
+    import oe.terminal
+    import subprocess
+
+
+    envdata = bb.data.init()
+
+    for v in os.environ:
+        envdata.setVar(v, os.environ[v])
+        envdata.setVarFlag(v, 'export', '1')
+
+
+    for export in oe.data.typed_value('OE_TERMINAL_EXPORTS', d):
+        value = d.getVar(export)
+        if value is not None:
+            os.environ[export] = str(value)
+            envdata.setVar(export, str(value))
+            envdata.setVarFlag(export, 'export', '1')
+        if export == "PSEUDO_DISABLED":
+            if "PSEUDO_UNLOAD" in os.environ:
+                del os.environ["PSEUDO_UNLOAD"]
+            envdata.delVar("PSEUDO_UNLOAD")
+
+    # Add in all variables from the user's original environment which
+    # haven't subsequntly been set/changed
+    origbbenv = d.getVar("BB_ORIGENV", False) or {}
+    for key in origbbenv:
+        if key in envdata:
+            continue
+        value = origbbenv.getVar(key)
+        if value is not None:
+            os.environ[key] = str(value)
+            envdata.setVar(key, str(value))
+            envdata.setVarFlag(key, 'export', '1')
+
+    # Use original PATH as a fallback
+    path = d.getVar('PATH') + ":" + origbbenv.getVar('PATH')
+    os.environ['PATH'] = path
+    envdata.setVar('PATH', path)
+
+    # A complex PS1 might need more escaping of chars.
+    # Lets not export PS1 instead.
+    envdata.delVar("PS1")
+
+    # Replace command with an executable wrapper script
+    command = emit_terminal_func(command, envdata, d)
+
+    subprocess.run([command])
+
+oe_terminal_no_spawn[vardepsexclude] = "BB_ORIGENV"
+
 # Helper function to check if Vulnscout required files are present on the host
 check_vulnscout_requirements() {
     SPDX_3_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.json"
