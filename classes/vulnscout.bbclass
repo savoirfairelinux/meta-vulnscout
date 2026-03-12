@@ -8,7 +8,7 @@ VULNSCOUT_COMPOSE_FILE ?= "${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
 
 # Repo and version of vulnscout to use
 VULNSCOUT_VERSION ?= "v0.11.1"
-VULNSCOUT_DOCKER_IMAGE ?= "sflinux/vulnscout"
+VULNSCOUT_DOCKER_IMAGE ?= "docker.io/sflinux/vulnscout"
 VULNSCOUT_GIT_URI ?= "https://github.com/savoirfairelinux/vulnscout.git"
 
 # Variables for the vulnscout configuration
@@ -31,6 +31,58 @@ python __anonymous() {
     else:
         bb.fatal("Neither create-spdx, nor create-spdx-3.0, nor create-spdx-2.2 class is inherited, please inherit one of these classes in your distro config or local.conf.")
 }
+
+def oe_terminal_no_spawn(command, d):
+    import oe.data
+    import oe.terminal
+    import subprocess
+
+
+    envdata = bb.data.init()
+
+    for v in os.environ:
+        envdata.setVar(v, os.environ[v])
+        envdata.setVarFlag(v, 'export', '1')
+
+
+    for export in oe.data.typed_value('OE_TERMINAL_EXPORTS', d):
+        value = d.getVar(export)
+        if value is not None:
+            os.environ[export] = str(value)
+            envdata.setVar(export, str(value))
+            envdata.setVarFlag(export, 'export', '1')
+        if export == "PSEUDO_DISABLED":
+            if "PSEUDO_UNLOAD" in os.environ:
+                del os.environ["PSEUDO_UNLOAD"]
+            envdata.delVar("PSEUDO_UNLOAD")
+
+    # Add in all variables from the user's original environment which
+    # haven't subsequntly been set/changed
+    origbbenv = d.getVar("BB_ORIGENV", False) or {}
+    for key in origbbenv:
+        if key in envdata:
+            continue
+        value = origbbenv.getVar(key)
+        if value is not None:
+            os.environ[key] = str(value)
+            envdata.setVar(key, str(value))
+            envdata.setVarFlag(key, 'export', '1')
+
+    # Use original PATH as a fallback
+    path = d.getVar('PATH') + ":" + origbbenv.getVar('PATH')
+    os.environ['PATH'] = path
+    envdata.setVar('PATH', path)
+
+    # A complex PS1 might need more escaping of chars.
+    # Lets not export PS1 instead.
+    envdata.delVar("PS1")
+
+    # Replace command with an executable wrapper script
+    command = emit_terminal_func(command, envdata, d)
+
+    subprocess.run([command])
+
+oe_terminal_no_spawn[vardepsexclude] = "BB_ORIGENV"
 
 # Helper function to check if Vulnscout required files are present on the host
 check_vulnscout_requirements() {
@@ -182,30 +234,35 @@ python clear_vulnscout_container() {
     import re
     import sys
 
-    #Folder variables
+    # Folder variables
     compose_file = d.getVar("VULNSCOUT_COMPOSE_FILE")
     compose_cmd = ""
+    container_engine = "docker"
 
     # Check if docker-compose file has been created
     if not os.path.exists(compose_file):
         bb.fatal(f"Cannot start Vulnscout container: {compose_file} does not exist. Run do_setup_vulnscout first.")
 
-    # Check if docker-compose exists on host
-    if shutil.which("docker-compose"):
+    # Check for compose provider
+    if shutil.which('docker-compose'):
         compose_cmd = "docker-compose"
-        d.setVar("VULNSCOUT_COMPOSE_CMD",compose_cmd)
     else:
         # Check for 'docker compose' subcommand
         try:
             subprocess.run(["docker", "compose", "version"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             compose_cmd = "docker compose"
-            d.setVar("VULNSCOUT_COMPOSE_CMD",compose_cmd)
         except (subprocess.CalledProcessError, FileNotFoundError):
-            bb.fatal("Neither 'docker-compose' nor 'docker compose' are available. Please install one of them.")
+            if shutil.which('podman-compose'):
+                compose_cmd = "podman-compose --podman-run-args \"--user=root --userns=keep-id\""
+                container_engine = "podman"
+            else:
+                bb.fatal("Neither 'podman-compose', 'docker-compose' nor 'docker compose' are available. Please install one of them.")
+    d.setVar("VULNSCOUT_COMPOSE_CMD", compose_cmd)
+    d.setVar("VULNSCOUT_CONTAINER_ENGINE", container_engine)
 
     def get_vulnscout_containers():
         # Check if there is already some vulnscout containers and retrieve their IDs
-        check_cmd = subprocess.run(['docker', 'ps', '-a', '--filter', 'name=vulnscout','--format', '{{.ID}}'], capture_output=True, text=True)
+        check_cmd = subprocess.run([container_engine, 'ps', '-a', '--filter', 'name=vulnscout', '--format', '{{.ID}}'], capture_output=True, text=True)
         containers = check_cmd.stdout.strip().splitlines()
         return containers
 
@@ -216,9 +273,9 @@ python clear_vulnscout_container() {
         bb.plain(f"Found {len(containers)} vulnscout container(s), deleting...")
         success = True
         for cid in containers:
-            result = subprocess.run(['docker', 'rm', '-f', cid])
+            result = subprocess.run([container_engine, 'rm', '-f', cid])
             if result.returncode != 0:
-                    bb.war(f"Failed to delete container {cid}: {result.stderr.strip()}")
+                    bb.warn(f"Failed to delete container {cid}: {result.stderr}")
                     success = False
         if success:
             retry_count = 0
@@ -229,12 +286,12 @@ python clear_vulnscout_container() {
                 break
         # re-check after deletion
         containers = get_vulnscout_containers()
-
 }
 
 python do_vulnscout_ci() {
     import subprocess
     import os
+    import shlex
 
     # Define Output YAML file
     compose_file = d.getVar("VULNSCOUT_COMPOSE_FILE")
@@ -264,28 +321,30 @@ python do_vulnscout_ci() {
     # Call the do_clear_vulnscout_container function
     bb.build.exec_func("clear_vulnscout_container",d)
     compose_cmd = d.getVar("VULNSCOUT_COMPOSE_CMD")
+    container_engine = d.getVar("VULNSCOUT_CONTAINER_ENGINE")
 
     # Launch vulnscount_ci
     if fail_condition:
         bb.warn(f"Launching vulnscout in CI mode with fail condition set has: " + fail_condition + " Scanning ..." )
     else:
         bb.warn(f"Launching vulnscout in CI mode without fail condition. Scanning ...")
-    subprocess.run(compose_cmd.split() + ['-f', compose_file, 'up'], check=True)
+    cmd = f"sh -c '{compose_cmd} -f \"{compose_file}\" up'"
+    oe_terminal_no_spawn(cmd, d)
 
     # Retrieve container status to check if it ended with a error code
-    docker_status = subprocess.run(['docker', 'inspect', 'vulnscout', '--format', '{{.State.ExitCode}}'], capture_output=True, text=True)
-    docker_exit_code = int(docker_status.stdout.strip())
+    container_status = subprocess.run([container_engine, 'inspect', 'vulnscout', '--format', '{{.State.ExitCode}}'], capture_output=True, text=True)
+    container_exit_code = int(container_status.stdout.strip())
 
     # Retrieve all the logs from the container vulnscout
-    docker_log = subprocess.run(['docker', 'logs', 'vulnscout'], capture_output=True, text=True)
-    docker_result = docker_log.stdout.strip()
+    container_log = subprocess.run([container_engine, 'logs', 'vulnscout'], capture_output=True, text=True)
+    container_result = container_log.stdout.strip()
 
     # If the container ended with a error code, stop the code and print it.
-    if docker_exit_code == 2:
+    if container_exit_code == 2:
         bb.fatal(
             f"\n----------------Vulnscout trigger fail condition----------------\n"
             f"----------Trigger condition set : {fail_condition}---------- \n"
-            f"{docker_result}"
+            f"{container_result}"
             f"\n \n ---Vulnscout exit with the code 2 due to fail condition triggered: {fail_condition}---\n"
             f"---Vulnscout has generated multiple files here : {output_vulnscout} ---\n" )
     # Else only show the logs from the container
@@ -296,14 +355,14 @@ python do_vulnscout_ci() {
         else:
             bb.plain("----------Trigger condition not set----------")
         bb.plain(
-            f"{docker_result}"
+            f"{container_result}"
             f"\n---Vulnscout has generated multiple files here : {output_vulnscout} ---\n" )
 
     # Stop the container after use
     try:
-        subprocess.run(compose_cmd.split() + ["-f", compose_file, "down"], check=True)
+        subprocess.run(shlex.split(compose_cmd) + ["-f", compose_file, "down"], check=True)
     except subprocess.CalledProcessError as e:
-        bb.fatal(f"Failed to stop docker-compose: {e}")
+        bb.fatal(f"Failed to stop {compose_cmd}: {e}")
 
 }
 do_vulnscout_ci[nostamp] = "1"
@@ -313,12 +372,14 @@ addtask vulnscout_ci after do_setup_vulnscout
 python do_vulnscout() {
     import os
     import subprocess
+    import shlex
 
     compose_file = d.getVar("VULNSCOUT_COMPOSE_FILE")
 
     # Call the do_clear_vulnscout_container function
     bb.build.exec_func("clear_vulnscout_container",d)
     compose_cmd = d.getVar("VULNSCOUT_COMPOSE_CMD")
+    container_engine = d.getVar("VULNSCOUT_CONTAINER_ENGINE")
 
     # Delete fail condition in docker-compose file
     subprocess.run(['sed', '-i', '/FAIL_CONDITION=/d', compose_file])
@@ -332,21 +393,32 @@ python do_vulnscout() {
 
     # Stop the container after use
     try:
-        subprocess.run(compose_cmd.split() + ["-f", compose_file, "down"], check=True)
+        subprocess.run(shlex.split(compose_cmd) + ["-f", compose_file, "down"], check=True)
     except subprocess.CalledProcessError as e:
-        bb.fatal(f"Failed to stop docker-compose: {e}")
+        bb.fatal(f"Failed to stop {compose_cmd}: {e}")
 }
 do_vulnscout[nostamp] = "1"
-do_vulnscout[doc] = "Open a new terminal and launch VulnScout web interface in a Docker container"
+do_vulnscout[doc] = "Open a new terminal and launch VulnScout web interface in a Docker or Podman container"
 addtask vulnscout after do_setup_vulnscout
 
 python do_vulnscout_no_scan(){
     # Call the check_vulnscout_requirements function to check requirements
     # before launching vulnscout
     bb.build.exec_func("check_vulnscout_requirements",d)
-    # Call the vulnscout task to start the docker container
+    # Call the vulnscout task to start the container
     bb.build.exec_func("do_vulnscout",d)
 }
 do_vulnscout_no_scan[nostamp] = "1"
-do_vulnscout_no_scan[doc] = "Open a new terminal and launch VulnScout web interface in a Docker container without scanning the image"
+do_vulnscout_no_scan[doc] = "Open a new terminal and launch VulnScout web interface in a Docker or Podman container without scanning the image"
 addtask vulnscout_no_scan
+
+python do_vulnscout_ci_no_scan(){
+    # Call the check_vulnscout_requirements function to check requirements
+    # before launching vulnscout
+    bb.build.exec_func("check_vulnscout_requirements",d)
+    # Call the vulnscout task to start the container
+    bb.build.exec_func("do_vulnscout_ci",d)
+}
+do_vulnscout_ci_no_scan[nostamp] = "1"
+do_vulnscout_ci_no_scan[doc] = "Open a new terminal and launch VulnScout web interface in a Docker or Podman container without scanning the image"
+addtask vulnscout_ci_no_scan

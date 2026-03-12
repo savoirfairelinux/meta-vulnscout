@@ -10,7 +10,9 @@ OpenVEX.
 
 ## Requirements
 
-- `docker-compose` or `docker compose` command
+- `docker` or `podman` command
+
+- `docker-compose`, `docker compose` or `podman-compose` command
 
 - `python3-packaging` package. If you are running in CQFD, you should add it in
   `.cqfd/docker/Dockerfile`.
@@ -58,7 +60,7 @@ are enabling VulnScout, then you can add to your `local.conf` or distro config:
 # May be required if not using poky distro
 INHERIT += "create-spdx"
 
-HOSTTOOLS_NONFATAL += "docker-compose docker"
+HOSTTOOLS_NONFATAL += "docker-compose docker podman-compose podman newgidmap newuidmap"
 ```
 
 And then manually `inherit vulnscout` in specific image recipes to enable
