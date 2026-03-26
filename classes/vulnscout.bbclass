@@ -244,7 +244,7 @@ python clear_vulnscout_container() {
         for cid in containers:
             result = subprocess.run(['docker', 'rm', '-f', cid])
             if result.returncode != 0:
-                    bb.war(f"Failed to delete container {cid}: {result.stderr.strip()}")
+                    bb.warn(f"Failed to delete container {cid}: {result.stderr.strip()}")
                     success = False
         if success:
             retry_count = 0
