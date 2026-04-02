@@ -4,22 +4,32 @@ VULNSCOUT_BASE_DIR ?= "${VULNSCOUT_ROOT_DIR}/.vulnscout"
 VULNSCOUT_DEPLOY_DIR ?= "${VULNSCOUT_BASE_DIR}/${IMAGE_BASENAME}${IMAGE_MACHINE_SUFFIX}"
 VULNSCOUT_CACHE_DIR ?= "${VULNSCOUT_BASE_DIR}/cache"
 VULNSCOUT_CUSTOM_TEMPLATES_DIR ?= "${VULNSCOUT_BASE_DIR}/custom_templates"
-VULNSCOUT_COMPOSE_FILE ?= "${VULNSCOUT_DEPLOY_DIR}/docker-compose.yml"
+VULNSCOUT_CONFIG_FILE ?= "${VULNSCOUT_CACHE_DIR}/config.env"
+
+# Vulnscout parameters for the scan, report and export configuration
+VULNSCOUT_VARIANT ?= "${DISTRO}_${MACHINE}_${IMAGE_BASENAME}"
+VULNSCOUT_PROJECT ?= "default"
+VULNSCOUT_EXPORT ?= "spdx openvex"
+VULNSCOUT_REPORT ?= ""
+VULNSCOUT_REPORT_CI ?= ""
 
 # Repo and version of vulnscout to use
-VULNSCOUT_VERSION ?= "v0.11.1"
 VULNSCOUT_DOCKER_IMAGE ?= "sflinux/vulnscout"
 VULNSCOUT_GIT_URI ?= "https://github.com/savoirfairelinux/vulnscout.git"
 
 # Variables for the vulnscout configuration
-VULNSCOUT_ENV_INTERACTIVE_MODE ?= "true"
-VULNSCOUT_ENV_FAIL_CONDITION ?= ""
 VULNSCOUT_ENV_VERBOSE_MODE ?= "false"
 VULNSCOUT_ENV_FLASK_RUN_PORT ?= "7275"
 VULNSCOUT_ENV_FLASK_RUN_HOST ?= "0.0.0.0"
-VULNSCOUT_ENV_GENERATE_DOCUMENTS ?= "summary.adoc,time_estimates.csv"
 VULNSCOUT_ENV_IGNORE_PARSING_ERRORS ?= 'false'
-VULNSCOUT_ENV_CVE_CHECK_EXCLUDE_PATCHED ?= "false"
+VULNSCOUT_MATCH_CONDITION ?= ""
+
+# Variable for the Vulnerabilities files
+SPDX_3_PATH = "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.json"
+SPDX_2_PATH = "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.tar.zst"
+CVE_CHECK_PATH = "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json"
+SCOUTED_CVE_CHECK_PATH = "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.scouted.json"
+SBOM_CVE_CHECK_PATH = "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}${@d.getVarFlag("SBOM_CVE_CHECK_EXPORT_FILE", "ext")}"
 
 python __anonymous() {
     if bb.data.inherits_class("sbom-cve-check", d):
@@ -34,12 +44,6 @@ python __anonymous() {
 
 # Helper function to check if Vulnscout required files are present on the host
 check_vulnscout_requirements() {
-    SPDX_3_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.json"
-    SPDX_2_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.tar.zst"
-    CVE_CHECK_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json"
-    SCOUTED_CVE_CHECK_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.scouted.json"
-    SBOM_CVE_CHECK_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}${@d.getVarFlag("SBOM_CVE_CHECK_EXPORT_FILE", "ext")}"
-
     # Check the CVE-Check already exist
     if ${@bb.utils.contains('INHERIT', 'cve-check', 'true', 'false', d)}; then
         if ${@'true' if d.getVarFlag('do_image_improve_kernel_cve_report', 'task') else 'false'}; then
@@ -48,7 +52,7 @@ check_vulnscout_requirements() {
             fi
         elif [ ! -e "${CVE_CHECK_PATH}" ]; then
             bbfatal "CVE-Check file not found at ${CVE_CHECK_PATH}. Please enable 'cve-check' in INHERIT to generate it and rebuild the image."
-    fi
+        fi
     fi
 
     # Check the SPDX-2.2 or SPDX-3.0 files already exist based on INHERIT
@@ -67,7 +71,7 @@ check_vulnscout_requirements() {
     fi
 }
 
-setup_vulnscout_main() {
+do_setup_vulnscout() {
     check_vulnscout_requirements
 
     # Create an output directory for vulnscout configuration
@@ -79,258 +83,180 @@ cache/
 EOF
     fi
 
-    # Add Header section
-    cat > ${VULNSCOUT_COMPOSE_FILE} <<EOF
-services:
-  vulnscout:
-    image: ${VULNSCOUT_DOCKER_IMAGE}:${VULNSCOUT_VERSION}
-    container_name: vulnscout
-    restart: "no"
-    ports:
-      - "${VULNSCOUT_ENV_FLASK_RUN_PORT}:${VULNSCOUT_ENV_FLASK_RUN_PORT}"
-    volumes:
+    #  Populate the config file
+    if [ ! -f "${VULNSCOUT_CONFIG_FILE}" ]; then
+    mkdir -p "${VULNSCOUT_CACHE_DIR}"
+    cat > ${VULNSCOUT_CONFIG_FILE} <<EOF
+FLASK_RUN_PORT=${VULNSCOUT_ENV_FLASK_RUN_PORT}
+FLASK_RUN_HOST=${VULNSCOUT_ENV_FLASK_RUN_HOST}
+IGNORE_PARSING_ERRORS=${VULNSCOUT_ENV_IGNORE_PARSING_ERRORS}
+VERBOSE_MODE=${VULNSCOUT_ENV_VERBOSE_MODE}
+USER_UID=$(id -u)
+USER_GID=$(id -g)
+VULNSCOUT_VERSION="$(docker inspect "${VULNSCOUT_DOCKER_IMAGE}" --format '{{index .Config.Labels "org.opencontainers.image.version"}}' 2>/dev/null || echo unknown)"
 EOF
+        echo "Created default config at ${VULNSCOUT_CONFIG_FILE}"
+    fi
 
-    # Adding volumes to the docker-compose yml file
-    if ${@bb.utils.contains('INHERIT', 'cve-check', 'true', 'false', d)}; then
-        if ${@'true' if d.getVarFlag('do_image_improve_kernel_cve_report', 'task') else 'false'}; then
-            CVE_CHECK_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.scouted.json"
+    retry_count=0
+    containers=$(docker ps -a --filter 'name=vulnscout' --format '{{.ID}}')
+    while [ -n "$containers" ]; do
+        count=$(echo "$containers" | wc -l)
+        bbplain "Found $count vulnscout container(s), deleting..."
+        success=true
+        for cid in $containers; do
+            if ! docker rm -f "$cid"; then
+                bbwarn "Failed to delete container $cid"
+                success=false
+            fi
+        done
+        if [ "$success" = "true" ]; then
+            retry_count=0
         else
-            CVE_CHECK_PATH="${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json"
+            retry_count=$(expr "$retry_count" + 1)
+            if [ "$retry_count" -ge 5 ]; then
+                bbfatal "Cannot delete old vulnscout containers. Exiting..."
+            fi
         fi
-        CVE_CHECK_RELATIVE_PATH="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${CVE_CHECK_PATH}")"
-        echo "      - ${CVE_CHECK_RELATIVE_PATH}:/scan/inputs/yocto_cve_check/${IMAGE_LINK_NAME}.json:ro,Z" >> "${VULNSCOUT_COMPOSE_FILE}"
-    fi
+        containers=$(docker ps -a --filter 'name=vulnscout' --format '{{.ID}}')
+    done
 
-    # Test if we use SPDX 3.0 or SPDX 2.2
-    if ${@'true' if bb.data.inherits_class("sbom-cve-check", d) else 'false'}; then
-        SPDX_RELATIVE_PATH="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}${@d.getVarFlag("SBOM_CVE_CHECK_EXPORT_FILE", "ext")}")"
-        echo "      - ${SPDX_RELATIVE_PATH}:/scan/inputs/spdx/${IMAGE_LINK_NAME}.cve-check.spdx.json:ro,Z" >> "${VULNSCOUT_COMPOSE_FILE}"
-    elif ${@'true' if bb.data.inherits_class("create-spdx-3.0", d) else 'false'}; then
-        SPDX_RELATIVE_PATH="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.json")"
-        echo "      - ${SPDX_RELATIVE_PATH}:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.json:ro,Z" >> "${VULNSCOUT_COMPOSE_FILE}"
-    elif ${@'true' if bb.data.inherits_class("create-spdx-2.2", d) else 'false'}; then
-        SPDX_RELATIVE_PATH="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.tar.zst")"
-        echo "      - ${SPDX_RELATIVE_PATH}:/scan/inputs/spdx/${IMAGE_LINK_NAME}.spdx.tar.zst:ro,Z" >> "${VULNSCOUT_COMPOSE_FILE}"
-    fi
+    set --
+    while IFS='=' read -r key value; do
+        [ -z "$key" ] && continue
+        [ "${key#\#}" = "$key" ] || continue
+        set -- "$@" -e "${key}=${value}"
+    done < "${VULNSCOUT_CONFIG_FILE}"
 
-    ${@bb.utils.contains('INHERIT', 'cyclonedx-export', 'echo "      - $(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${DEPLOY_DIR}/cyclonedx-export"):/scan/inputs/cdx:ro" >> ${VULNSCOUT_COMPOSE_FILE}', '', d)}
+    docker run -d --name vulnscout \
+        -p 7275:7275 \
+        "$@" \
+        -v "${VULNSCOUT_CACHE_DIR}":/cache/vulnscout \
+        -v "${VULNSCOUT_DEPLOY_DIR}":/scan/outputs \
+        -v "${VULNSCOUT_CONFIG_FILE}":/etc/vulnscout/config.env \
+        "${VULNSCOUT_DOCKER_IMAGE}" daemon
+    # Wait for the container process to be ready to accept exec calls
+    retries=15
+    until docker exec vulnscout true 2>/dev/null; do
+        retries=$(expr "$retries" - 1)
+        if [ "$retries" -le 0 ]; then
+            echo "Error: container failed to start. Check 'docker logs vulnscout'."
+            exit 1
+        fi
+        sleep 1
+    done
 
-    echo "      - ./output:/scan/outputs:Z" >> "${VULNSCOUT_COMPOSE_FILE}"
+    bbplain "Vulnscout Setup Succeed: Docker Env file set at ${VULNSCOUT_CONFIG_FILE}"
 
-    if [ ! -d "${VULNSCOUT_CACHE_DIR}" ]; then
-        mkdir -p "${VULNSCOUT_CACHE_DIR}"
-    fi
-    VULNSCOUT_CACHE_DIR_RELATIVE="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${VULNSCOUT_CACHE_DIR}")"
-    echo "      - ${VULNSCOUT_CACHE_DIR_RELATIVE}:/cache/vulnscout:Z" >> "${VULNSCOUT_COMPOSE_FILE}"
-
-    if [ ! -d "${VULNSCOUT_CUSTOM_TEMPLATES_DIR}" ]; then
-        mkdir -p "${VULNSCOUT_CUSTOM_TEMPLATES_DIR}"
-    fi
-    VULNSCOUT_CUSTOM_TEMPLATES_DIR_RELATIVE="$(realpath --no-symlinks --relative-to="${VULNSCOUT_DEPLOY_DIR}" "${VULNSCOUT_CUSTOM_TEMPLATES_DIR}")"
-    echo "      - ${VULNSCOUT_CUSTOM_TEMPLATES_DIR_RELATIVE}:/scan/templates:Z" >> "${VULNSCOUT_COMPOSE_FILE}"
-
-    # Add environnement variables
-    cat >> ${VULNSCOUT_COMPOSE_FILE} <<EOF
-    environment:
-      - FLASK_RUN_PORT=${VULNSCOUT_ENV_FLASK_RUN_PORT}
-      - FLASK_RUN_HOST=${VULNSCOUT_ENV_FLASK_RUN_HOST}
-      - IGNORE_PARSING_ERRORS=${VULNSCOUT_ENV_IGNORE_PARSING_ERRORS}
-      - GENERATE_DOCUMENTS=${VULNSCOUT_ENV_GENERATE_DOCUMENTS}
-      - VERBOSE_MODE=${VULNSCOUT_ENV_VERBOSE_MODE}
-      - INTERACTIVE_MODE=${VULNSCOUT_ENV_INTERACTIVE_MODE}
-EOF
-
-    if [ -n "${VULNSCOUT_ENV_FAIL_CONDITION}" ]; then
-        echo "      - FAIL_CONDITION=${VULNSCOUT_ENV_FAIL_CONDITION}" >> "${VULNSCOUT_COMPOSE_FILE}"
-    fi
-    if [ -n "${VULNSCOUT_ENV_PRODUCT_NAME}" ]; then
-        echo "      - PRODUCT_NAME=${VULNSCOUT_ENV_PRODUCT_NAME}" >> "${VULNSCOUT_COMPOSE_FILE}"
-    fi
-    if [ -n "${VULNSCOUT_ENV_PRODUCT_VERSION}" ]; then
-        echo "      - PRODUCT_VERSION=${VULNSCOUT_ENV_PRODUCT_VERSION}" >> "${VULNSCOUT_COMPOSE_FILE}"
-    fi
-    if [ -n "${VULNSCOUT_ENV_AUTHOR_NAME}" ]; then
-        echo "      - AUTHOR_NAME=${VULNSCOUT_ENV_AUTHOR_NAME}" >> "${VULNSCOUT_COMPOSE_FILE}"
-    fi
-    if [ -n "${VULNSCOUT_ENV_CONTACT_EMAIL}" ]; then
-        echo "      - CONTACT_EMAIL=${VULNSCOUT_ENV_CONTACT_EMAIL}" >> "${VULNSCOUT_COMPOSE_FILE}"
-    fi
-    if [ -n "${VULNSCOUT_ENV_DOCUMENT_URL}" ]; then
-        echo "      - DOCUMENT_URL=${VULNSCOUT_ENV_DOCUMENT_URL}" >> "${VULNSCOUT_COMPOSE_FILE}"
-    fi
-    if [ -n "${VULNSCOUT_ENV_CVE_CHECK_EXCLUDE_PATCHED}" ]; then
-        echo "      - CVE_CHECK_EXCLUDE_PATCHED=${VULNSCOUT_ENV_CVE_CHECK_EXCLUDE_PATCHED}" >> "${VULNSCOUT_COMPOSE_FILE}"
-    fi
-    if [ -n "${NVDCVE_API_KEY}" ]; then
-        echo "      - NVD_API_KEY=${NVDCVE_API_KEY}" >> "${VULNSCOUT_COMPOSE_FILE}"
-    fi
-    if [ -n "$(id -u)" ] && [ -n "$(id -g)" ]; then
-        echo "      - USER_UID=$(id -u)" >> "${VULNSCOUT_COMPOSE_FILE}"
-        echo "      - USER_GID=$(id -g)" >> "${VULNSCOUT_COMPOSE_FILE}"
-    fi
-
-    bbplain "Vulnscout Setup Succeed: Docker Compose file set at ${VULNSCOUT_COMPOSE_FILE}"
-    bbplain "Vulnscout Info: After the build you can start web interface with the command 'docker-compose -f ${VULNSCOUT_COMPOSE_FILE} up'"
 }
+do_setup_vulnscout[nostamp] = "1"
+do_setup_vulnscout[doc] = "Configure the env file and create a new container"
 
-python setup_vulnscout_env() {
+# Helper function to find files in a directory and its subdirectories based on a pattern
+def find_all(name, path):
     import os
-    import re
+    import fnmatch
+    result = []
+    for root, dirs, files in os.walk(path):
+        for filename in files:
+            if fnmatch.fnmatch(filename, f"*{name}*"):
+                result.append(os.path.join(root, filename))
+    return result
 
-    generates_documents = (d.getVar("VULNSCOUT_ENV_GENERATE_DOCUMENTS") or "").split(",")
-    custom_tpl_dir = d.getVar("VULNSCOUT_CUSTOM_TEMPLATES_DIR") or ""
-    custom_tpl_list = os.scandir(custom_tpl_dir) if custom_tpl_dir else []
-    custom_templates = [tpl.name for tpl in custom_tpl_list if tpl.name in generates_documents]
-    env_regex = r'{{[ ]*env\([\'\"](\w*)[\'\"],?.*\)[ ]*}}'
-    env_passthrough = set()
-    for tpl in custom_templates:
-        with open(os.path.join(custom_tpl_dir, tpl)) as f:
-            for line in f.readlines():
-                for match in re.finditer(env_regex, line):
-                    env_passthrough.add(match.group(1))
-    for varname in env_passthrough:
-        with open(d.getVar("VULNSCOUT_COMPOSE_FILE"), "a") as f:
-            if d.getVar(varname):
-                f.write(f"      - VULNSCOUT_TPL_{varname}={d.getVar(varname)}\n")
-}
-
-python do_setup_vulnscout() {
-    bb.build.exec_func("setup_vulnscout_main", d)
-    bb.build.exec_func("setup_vulnscout_env", d)
-}
-do_setup_vulnscout[doc] = "Configure the yaml file required to start VulnScout in VULNSCOUT_DEPLOY_DIR"
-
-python clear_vulnscout_container() {
-    import os
+# Helper function to copy reports templates in the container
+# If there is not templates on the host, it try anyway
+# they may be already present in the container
+def copy_reports_to_container(reports, folder):
     import subprocess
-    import shutil
-    import re
-    import sys
+    import os
 
-    #Folder variables
-    compose_file = d.getVar("VULNSCOUT_COMPOSE_FILE")
-    compose_cmd = ""
+    cmd = []
 
-    # Check if docker-compose file has been created
-    if not os.path.exists(compose_file):
-        bb.fatal(f"Cannot start Vulnscout container: {compose_file} does not exist. Run do_setup_vulnscout first.")
+    # Retrieve the templates specified
+    templates = []
+    for report in reports:
+        templates.extend(find_all(report, folder))
 
-    # Check if docker-compose exists on host
-    if shutil.which("docker-compose"):
-        compose_cmd = "docker-compose"
-        d.setVar("VULNSCOUT_COMPOSE_CMD",compose_cmd)
-    else:
-        # Check for 'docker compose' subcommand
-        try:
-            subprocess.run(["docker", "compose", "version"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            compose_cmd = "docker compose"
-            d.setVar("VULNSCOUT_COMPOSE_CMD",compose_cmd)
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            bb.fatal("Neither 'docker-compose' nor 'docker compose' are available. Please install one of them.")
+    # Copy the templates specified in the container
+    for template in templates:
+        subprocess.run(['docker', 'cp', template, 'vulnscout:/tmp/'], check=True)
+        template_in_container = f"/tmp/{os.path.basename(template)}"
+        cmd += ['--report', template_in_container]
+    # If no template on the host, try the report on the container
+    if not templates:
+        for report in reports:
+            cmd += ['--report', report]
+    return cmd
 
-    def get_vulnscout_containers():
-        # Check if there is already some vulnscout containers and retrieve their IDs
-        check_cmd = subprocess.run(['docker', 'ps', '-a', '--filter', 'name=vulnscout','--format', '{{.ID}}'], capture_output=True, text=True)
-        containers = check_cmd.stdout.strip().splitlines()
-        return containers
+# Helper function to stop the container
+def stop_container():
+    import subprocess
+    try:
+        subprocess.run(['docker', 'stop', 'vulnscout'], check=True)
+    except subprocess.CalledProcessError as e:
+        bb.fatal(f"Failed to stop docker container: {e}")
 
-    containers = get_vulnscout_containers()
-    retry_count = 0
-    # If there is already vulnscout containers, delete them. If cannot delete a container, try 5 times then stop.
-    while containers:
-        bb.plain(f"Found {len(containers)} vulnscout container(s), deleting...")
-        success = True
-        for cid in containers:
-            result = subprocess.run(['docker', 'rm', '-f', cid])
-            if result.returncode != 0:
-                    bb.warn(f"Failed to delete container {cid}: {result.stderr.strip()}")
-                    success = False
-        if success:
-            retry_count = 0
-        else:
-            retry_count += 1
-            if retry_count >= 5:
-                bb.fatal("Cannot delete old vulnscout containers. Exiting...")
-                break
-        # re-check after deletion
-        containers = get_vulnscout_containers()
-
-}
+def print_generated_files(files, deploy_dir):
+    generated_files = []
+    for file in files:
+        generated_files.extend(find_all(file, deploy_dir))
+    for file in generated_files:
+        bb.plain(f"Generated file: {file}")
 
 python do_vulnscout_ci() {
     import subprocess
     import os
 
-    # Define Output YAML file
-    compose_file = d.getVar("VULNSCOUT_COMPOSE_FILE")
+    # Retrieve project and variant information
+    variant = d.getVar("VULNSCOUT_VARIANT")
+    project = d.getVar("VULNSCOUT_PROJECT")
+    output_vulnscout = d.getVar("VULNSCOUT_DEPLOY_DIR")
+    template_folder = (d.getVar("VULNSCOUT_CUSTOM_TEMPLATES_DIR"))
+    report_ci = (d.getVar("VULNSCOUT_REPORT_CI") or "").split()
 
-    output_vulnscout = d.getVar("VULNSCOUT_DEPLOY_DIR") + "/output/"
-
-    # Deactive the interactive mode in the docker-compose file
-    subprocess.run(['sed', '-i', 's/INTERACTIVE_MODE=true/INTERACTIVE_MODE=false/g', compose_file])
-
-    old_fail_condition = d.getVar("VULNSCOUT_ENV_FAIL_CONDITION")
-    new_fail_condition = d.getVar("VULNSCOUT_FAIL_CONDITION",)
-
-    # Chekc if there is a old_fail_condition set up and replace it by the new one
-    if new_fail_condition:
-        if old_fail_condition:
-            subprocess.run(['sed', '-i', 's/FAIL_CONDITION='+ old_fail_condition + '/FAIL_CONDITION= + new_fail_condition + /g', compose_file])
-        else:
-            subprocess.run(['sed', '-i', "/INTERACTIVE_MODE=false/a \      \- FAIL_CONDITION=" + new_fail_condition, compose_file])
-        fail_condition = new_fail_condition
-    # If there is not a new_fail_condition and not a old one clean the file
+    # Check if a match_condition has been set, if not failed.
+    match_condition = d.getVar("VULNSCOUT_MATCH_CONDITION")
+    if match_condition and report_ci:
+        bb.warn(
+            f"\nLaunching vulnscout in CI mode with match condition set has: " + match_condition + "\n"
+            f"Generating scan report " + ", ".join(report_ci) + " Scanning ..." )
+    elif match_condition:
+        bb.warn(f"Launching vulnscout in CI mode with match condition set has: " + match_condition + " Scanning ..." )
     else:
-        if not old_fail_condition:
-            subprocess.run(['sed', '-i', '/FAIL_CONDITION=/d', compose_file])
-            fail_condition = None
-        fail_condition = old_fail_condition
+        bb.fatal(f"Launching vulnscout in CI mode without match condition. Please set a match condition.")
 
-    # Call the do_clear_vulnscout_container function
-    bb.build.exec_func("clear_vulnscout_container",d)
-    compose_cmd = d.getVar("VULNSCOUT_COMPOSE_CMD")
-
-    # Launch vulnscount_ci
-    if fail_condition:
-        bb.warn(f"Launching vulnscout in CI mode with fail condition set has: " + fail_condition + " Scanning ..." )
-    else:
-        bb.warn(f"Launching vulnscout in CI mode without fail condition. Scanning ...")
-    subprocess.run(compose_cmd.split() + ['-f', compose_file, 'up'], check=True)
-
-    # Retrieve container status to check if it ended with a error code
-    docker_status = subprocess.run(['docker', 'inspect', 'vulnscout', '--format', '{{.State.ExitCode}}'], capture_output=True, text=True)
-    docker_exit_code = int(docker_status.stdout.strip())
-
-    # Retrieve all the logs from the container vulnscout
-    docker_log = subprocess.run(['docker', 'logs', 'vulnscout'], capture_output=True, text=True)
-    docker_result = docker_log.stdout.strip()
+    # Launch the vulnscout in CI with the match condition
+    cmd = ['docker', 'exec', 'vulnscout', '/scan/src/entrypoint.sh', '--project', project, '--variant', variant]
+    if match_condition:
+        cmd += ['--match-condition', match_condition]
+    if report_ci:
+        # Copy the custom templates or use the ones in the container
+        cmd += copy_reports_to_container(report_ci, template_folder)
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    # Print the logs in the current terminal
+    for line in process.stdout:
+        bb.plain(line.rstrip())
+    process.wait()
+    docker_exit_code = process.returncode
 
     # If the container ended with a error code, stop the code and print it.
     if docker_exit_code == 2:
         bb.fatal(
-            f"\n----------------Vulnscout trigger fail condition----------------\n"
-            f"----------Trigger condition set : {fail_condition}---------- \n"
-            f"{docker_result}"
-            f"\n \n ---Vulnscout exit with the code 2 due to fail condition triggered: {fail_condition}---\n"
+            f"\n----------------Vulnscout trigger match_condition----------------\n"
+            f"----------Trigger condition set : {match_condition}---------- \n"
+            f"\n---Vulnscout exit with code 2 due to match condition triggered: {match_condition}---\n"
             f"---Vulnscout has generated multiple files here : {output_vulnscout} ---\n" )
-    # Else only show the logs from the container
     else:
-        bb.plain("\n----------------Vulnscout scanning----------------")
-        if fail_condition:
-            bb.plain(f"----------Trigger condition set : {fail_condition}---------- \n")
-        else:
-            bb.plain("----------Trigger condition not set----------")
         bb.plain(
-            f"{docker_result}"
+            f"\n---Vulnscout scan completed without triggering match condition: {match_condition}---\n"
             f"\n---Vulnscout has generated multiple files here : {output_vulnscout} ---\n" )
 
-    # Stop the container after use
-    try:
-        subprocess.run(compose_cmd.split() + ["-f", compose_file, "down"], check=True)
-    except subprocess.CalledProcessError as e:
-        bb.fatal(f"Failed to stop docker-compose: {e}")
+    if report_ci:
+        # Retrieve the generated files and print them in the current terminal
+        print_generated_files(report_ci, output_vulnscout)
 
+    # Stop the container after use
+    stop_container()
 }
 do_vulnscout_ci[nostamp] = "1"
 do_vulnscout_ci[doc] = "Launch VulnScout in non-interactive mode. VULNSCOUT_FAIL_CONDITION can be used to set a fail condition"
@@ -340,50 +266,116 @@ python do_vulnscout() {
     import os
     import subprocess
 
-    compose_file = d.getVar("VULNSCOUT_COMPOSE_FILE")
+    # Retrieve project and variant information
+    variant = d.getVar("VULNSCOUT_VARIANT")
+    project = d.getVar("VULNSCOUT_PROJECT")
 
-    # Call the do_clear_vulnscout_container function
-    bb.build.exec_func("clear_vulnscout_container",d)
-    compose_cmd = d.getVar("VULNSCOUT_COMPOSE_CMD")
+    # Retrieve paths for SPDX and CVE-Check files
+    spdx_3_path = d.getVar("SPDX_3_PATH")
+    spdx_2_path = d.getVar("SPDX_2_PATH")
+    cve_check_path = d.getVar("CVE_CHECK_PATH")
+    scouted_cve_check_path = d.getVar("SCOUTED_CVE_CHECK_PATH")
+    sbom_cve_check_path = d.getVar("SBOM_CVE_CHECK_PATH")
 
-    # Delete fail condition in docker-compose file
-    subprocess.run(['sed', '-i', '/FAIL_CONDITION=/d', compose_file])
+    # Determine which SPDX file to use based on INHERIT
+    if bb.data.inherits_class("create-spdx-3.0", d):
+        spdx_used_path = spdx_3_path
+    else:
+        spdx_used_path = spdx_2_path
 
-    # Activate the interactive mode in the docker-compose file
-    subprocess.run(['sed', '-i', 's/INTERACTIVE_MODE=false/INTERACTIVE_MODE=true/g', compose_file])
+    spdx_real_path = os.path.realpath(spdx_used_path)
 
-    # Use oe_terminal to run in a new interactive shell
-    cmd = f"sh -c '{compose_cmd} -f \"{compose_file}\" up; echo \"\\nContainer exited. Press any key to close...\"; read x'"
+    # Determine which CVE-Check file to use
+    if d.getVarFlag('do_image_improve_kernel_cve_report', 'task'):
+        cve_check_used_path = scouted_cve_check_path
+    else:
+        cve_check_used_path = cve_check_path
+
+    cve_check_real_path = os.path.realpath(cve_check_used_path)
+
+    # Copy the SPDX and CVE-Check files into the container
+    subprocess.run(['docker', 'cp', spdx_real_path, 'vulnscout:/tmp/'], check=True)
+    subprocess.run(['docker', 'cp', cve_check_real_path, 'vulnscout:/tmp/'], check=True)
+
+    # Launch Vulnscout in a new terminal and adding the SPDX and CVE-Check files in the database
+    spdx_in_container = f"/tmp/{os.path.basename(spdx_real_path)}"
+    cve_check_in_container = f"/tmp/{os.path.basename(cve_check_real_path)}"
+    cmd = f"docker exec vulnscout /scan/src/entrypoint.sh --project {project} --variant {variant} --add-spdx {spdx_in_container} --add-cve-check {cve_check_in_container} --serve ; echo; echo Container exited. Press any key to close...; read x"
     oe_terminal(cmd, "Vulnscout Container Logs", d)
 
     # Stop the container after use
-    try:
-        subprocess.run(compose_cmd.split() + ["-f", compose_file, "down"], check=True)
-    except subprocess.CalledProcessError as e:
-        bb.fatal(f"Failed to stop docker-compose: {e}")
+    stop_container()
 }
 do_vulnscout[nostamp] = "1"
-do_vulnscout[doc] = "Open a new terminal and launch VulnScout web interface in a Docker container"
+do_vulnscout[doc] = "Open a new terminal and launch VulnScout web interface through a Docker container"
 addtask vulnscout after do_setup_vulnscout
 
+python do_vulnscout_export() {
+    import subprocess
+    import fnmatch
+    import os
+
+    # Retrieve the export formats and deploy directory
+    exports = (d.getVar("VULNSCOUT_EXPORT") or "").split()
+    deploy_dir = d.getVar("VULNSCOUT_DEPLOY_DIR")
+    cmd_export = ""
+
+    # Check if the export formats are valid
+    for export in exports:
+        if export not in ["spdx", "cdx", "openvex"]:
+            bb.fatal(f"Invalid export format: {export}. Supported formats are: spdx, cdx, openvex.")
+        cmd_export += "--export-" + export + " "
+
+    # Launch the creation of all the export files
+    subprocess.run(['docker', 'exec', 'vulnscout', '/scan/src/entrypoint.sh'] + cmd_export.split(), check=True)
+
+    # Retrieve the generated files and print them in the current terminal
+    print_generated_files(exports, deploy_dir)
+
+    # Stop the container after use
+    stop_container()
+}
+do_vulnscout_export[nostamp] = "1"
+do_vulnscout_export[doc] = "Generate export files from VulnScout in a Docker container"
+addtask vulnscout_export after do_setup_vulnscout
+
+python do_vulnscout_report() {
+    import subprocess
+    import fnmatch
+    import os
+
+    # Retrieve the custom templates, report names and deploy directory
+    template_folder = (d.getVar("VULNSCOUT_CUSTOM_TEMPLATES_DIR"))
+    reports = (d.getVar("VULNSCOUT_REPORT") or "").split()
+    deploy_dir = d.getVar("VULNSCOUT_DEPLOY_DIR")
+    cmd_report = ""
+
+    # Call the function to copy the template in the container
+    cmd_report = copy_reports_to_container(reports, template_folder)
+
+    # Launch the creation of all the reports
+    subprocess.run(['docker', 'exec', 'vulnscout', '/scan/src/entrypoint.sh'] + cmd_report, check=True)
+
+    # Retrieve the generated files and print them in the current terminal
+    print_generated_files(reports, deploy_dir)
+
+    # Stop the container after use
+    stop_container()
+}
+do_vulnscout_report[nostamp] = "1"
+do_vulnscout_report[doc] = "Generate Vulnscout report files from custom templates"
+addtask do_vulnscout_report after do_setup_vulnscout
+
 python do_vulnscout_no_scan(){
-    # Call the check_vulnscout_requirements function to check requirements
-    # before launching vulnscout
-    bb.build.exec_func("check_vulnscout_requirements", d)
-    # Call the vulnscout task to start the docker container
-    bb.build.exec_func("do_vulnscout", d)
+    import subprocess
+
+    # Launching Vulnscout without scan
+    cmd = f"docker exec vulnscout /scan/src/entrypoint.sh --serve ; echo; echo Container exited. Press any key to close...; read x"
+    oe_terminal(cmd, "Vulnscout Container Logs", d)
+
+    # Stop the container after use
+    stop_container()
 }
 do_vulnscout_no_scan[nostamp] = "1"
 do_vulnscout_no_scan[doc] = "Open a new terminal and launch VulnScout web interface in a Docker container without scanning the image"
-addtask vulnscout_no_scan
-
-python do_vulnscout_ci_no_scan(){
-    # Call the check_vulnscout_requirements function to check requirements
-    # before launching vulnscout
-    bb.build.exec_func("check_vulnscout_requirements", d)
-    # Call the vulnscout task to start the docker container
-    bb.build.exec_func("do_vulnscout_ci", d)
-}
-do_vulnscout_ci_no_scan[nostamp] = "1"
-do_vulnscout_ci_no_scan[doc] = "Launch VulnScout in non-interactive mode without scanning the image. VULNSCOUT_FAIL_CONDITION can be used to set a fail condition"
-addtask vulnscout_ci_no_scan
+addtask vulnscout_no_scan after do_setup_vulnscout
