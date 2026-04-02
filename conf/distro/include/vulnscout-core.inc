@@ -4,7 +4,7 @@ IMAGE_CLASSES += "vulnscout"
 # May be required if not using poky distro
 INHERIT += "create-spdx"
 
-HOSTTOOLS_NONFATAL += "docker "
+HOSTTOOLS_NONFATAL += "docker"
 
 # Default NVD DB version. The default version use FKIE which is currenctly
 # bugged in Yocto with wrong and incomplete CVEs.
