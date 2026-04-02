@@ -89,9 +89,8 @@ require conf/distro/include/vulnscout-cve-check.inc
   \
   It provides extra kernel CVE details and information through the variable
   `CVE_STATUS`. \
-  To integrate this script, a .bbappend on the kernel recipe can be used to add
-  `inherit kernel_generate_cve_exclusions` as shown on the available example at
-  `meta-vulnscout/recipes-kernel/linux/linux-yocto_%.bbappend`
+  This script is implemented through `conf/distro/include/vulnscout-cve-check.inc`
+  It can be manually implement it by a `KERNEL_CLASSES += "kernel_generate_cve_exclusions"`
 
 
 - `improve_kernel_cve_report.bbclass` can be used to integrate the script
@@ -100,9 +99,8 @@ require conf/distro/include/vulnscout-cve-check.inc
   \
   It reduces CVE false positives by 70%-80% and provides detailed responses
   for all kernel-related CVEs by analyzing the files used to build the kernel. \
-  To integrate this script, a .bbappend on the image recipe can be used to add
-  `inherit improve_kernel_cve_report` as shown on the available example at
-  `meta-vulnscout/recipes-core/images/core-image-minimal.bbappend`
+  This script is implemented through `conf/distro/include/vulnscout-cve-check.inc`
+  It can be manually implement it by a `IMAGE_CLASSES += "improve_kernel_cve_report"`
 
 - `kernel_filter_nonbuilt_cves.bbclass` can be used to update the cve-check file
   by removing CVEs based on elements that aren't present in the built kernel. A
@@ -110,8 +108,9 @@ require conf/distro/include/vulnscout-cve-check.inc
   vulnerable to it. \
   It reduces the number of kernel CVEs to deal with by
   around 70%. \
-  To integrate this class, a simple `inherit kernel_filter_nonbuilt_cves` is
-  required in the kernel recipe. After a kernel
+  This script is implemented through `conf/distro/include/vulnscout-cve-check.inc`
+  It can be manually implement it by a `KERNEL_CLASSES += "kernel_filter_nonbuilt_cves"` or
+  a simple `inherit kernel_filter_nonbuilt_cves` is required in the kernel recipe. After a kernel
   build tree, new files will be located in your deploy directory. A file with
   `.kernel_remaining_cves.json` extension will contain the remaining active
   CVEs, a second file with `.kernel_removed_cves.json` contains the details of
@@ -143,12 +142,22 @@ bitbake core-image-minimal -c do_vulnscout_no_scan
 Or you can do it manually with the command:
 
 ```shell
-docker start vulnscout
 docker exec vulnscout /scan/src/entrypoint.sh --serve
 ```
 
 Without a custom configuration, a web interface will be started at the address
-`http://localhost:7275`.
+`http://localhost:7275`
+
+### Projects and Variants
+
+meta-vulnscout organises data into *projects* and *variants*.\
+ A project typically maps to a product, and variants represent different builds or architectures as the machine, the image or even the distro (e.g. `x86_64`, `aarch64`).
+
+ By default the project name is default and can be changed through the variable `VULNSCOUT_PROJECT` in the *local.conf* file.
+
+And the variant is set as `<distro>_<machine>_<image>` of your build (e.g. poky_qemux86-64_ccore-image-minimal).
+It can be changed through the variable `VULNSCOUT_VARIANT` in the *local.conf* file.
+
 
 ## Using VulnScout with a CI
 
@@ -199,7 +208,7 @@ With this command, `vulnscout` will list all vulnerabilities critical (CVSS >=
 
 > [!NOTE]
 > Setting up the match condition this way will override the
-> "VULNSCOUT_MATCH_CONDITION" variable in the *vulnscout.bbclass*
+> "VULNSCOUT_MATCH_CONDITION"
 
 > [!WARNING]
 > If you set the "VULNSCOUT_MATCH_CONDITION" with the `export` command in your
@@ -216,18 +225,20 @@ The built-in reports are the following:
   - vulnerabilities.csv
   - vulnerability_summary.txt
 
-All custom reports must be placed in the following folder _.vulnscout/custom\_templates_
+All Custom reports must be placed in the following folder _.vulnscout/custom\_templates_
+Custome report should follow the [template format of VulnScout](https://github.com/savoirfairelinux/vulnscout/blob/main/doc/WRITING_TEMPLATES.adoc).
 
 > [!NOTE]
 > The custom_templates could be changed through the
-> "VULNSCOUT_CUSTOM_TEMPLATES_DIR" variable in the *vulnscout.bbclass*
+> "VULNSCOUT_CUSTOM_TEMPLATES_DIR" variable in the *local.conf* file.
 
 There are two ways to generate reports with meta-vulnscout
 
 ### Generating reports without a scan
 Multiple reports can be created within one command without a scan.
 
-You must specify the reports you wish to generate to the variable "VULNSCOUT_REPORT" in the *vulnscout.bbclass*
+You must specify the reports you wish to generate to the variable "VULNSCOUT_REPORT" in the *local.conf* file.
+By default it will generate the summary.adoc
 
 Example:
 ``` bash
@@ -255,7 +266,7 @@ Now when using the command `-c vulnscout_ci` the reports will be automatically g
 meta-vulnscout can export the enriched project data as standard SBOM formats.
 Exported files are written to the outputs directory (default: `.vulnscout/<image_basename-machine_suffix>/`).
 
-To export the SBOM files, you have to specify the files in the variable "VULNSCOUT_EXPORT" in the *vulnscout.bbclass*.
+To export the SBOM files, you have to specify the files in the variable "VULNSCOUT_EXPORT" in the *local.conf*.
 
 For now you can export three types of SBOM:
   - cdx
@@ -273,8 +284,7 @@ bitbake core-image-minimal -c vulnscout_export
 In VulnScout templates, you can use environment variables as stated in the
 documentation. These variables should be automatically detected if they are in a
 template in the `custom_templates` directory, and that the template is in use in
-`VULNSCOUT_ENV_GENERATE_DOCUMENTS`. Then the content of the variable is appended
-to the environment in the docker compose file with `VULNSCOUT_TPL_` prefix.
+`VULNSCOUT_ENV_GENERATE_DOCUMENTS`.
 
 ## Accelerate NVD database download
 
@@ -296,8 +306,7 @@ to access the web interface.
 Indeed, the web interface won't be mapped to the host if the building Docker
 container is not properly configured.
 
-CQFD requires adding `docker-compose` (for Ubuntu 22.04 and earlier) or
-`docker-compose-v2` (for Ubuntu 24.04 and later) to your
+CQFD requires adding `docker-cli` (for Ubuntu 22.04 and earlier)
 *.cqfd/docker/Dockerfile* and exporting the following variable:
 
 ``` bash
@@ -320,10 +329,6 @@ cqfd kas shell -c "bitbake -c <your_Yocto_image> -c vulnscout"
 cqfd run ./build.sh -- bitbake <your_Yocto_image> -c vulnscout
 ```
 
-If the container can't be configured (e.g., with kas-container),
-VulnScout's web interface can still be run directly on the host with the
-`docker-compose` command.
-
 ## Using [meta-sbom-cve-check](https://github.com/bootlin/meta-sbom-cve-check)
 
 The output of `meta-sbom-cve-check` is supported in VulnScout. However, this
@@ -334,6 +339,30 @@ layer is incompatible with the cve-check improvements provided in
 ## Result
 
 ![Screenshot](doc/vulnscout-ui.png)
+
+## Variables Glossary
+
+meta-vulnscout can be configured through variables in the *local.conf*.
+Here is a recap of all the variable and their impact:
+
+- VULNSCOUT_ROOT_DIR : Root directory of the ./vulnscout
+- VULNSCOUT_BASE_DIR : Base directory of the ./vulnscout configuration and output files
+- VULNSCOUT_DEPLOY_DIR : Directory of the ouput files (reports, exports, ...)
+- VULNSCOUT_CACHE_DIR : Directory of the cache used by vulnscout (database, docker config file)
+- VULNSCOUT_CUSTOM_TEMPLATES_DIR : Directory used to implement custom template to vulnscout
+- VULNSCOUT_CONFIG_FILE : Docker config file
+- VULNSCOUT_VARIANT : Name of the variant used in vulnscout
+- VULNSCOUT_PROJECT : Name of the project used in vulnscout
+- VULNSCOUT_EXPORT : SBOM files to generate with the command `-c vulnscout_export` ( the value has to bee spdx, openvex or cdx)
+- VULNSCOUT_REPORT : Reports to generate with the command `-c vulnscout_report` using templates.
+- VULNSCOUT_REPORT_CI : Reports generated automatically when during `-c vulnscout_ci`
+- VULNSCOUT_IMAGE_VERSION : Version of the container image to use. If the version set in the variable is not the same as the container image used, recreate the vulnscout container.
+- VULNSCOUT_IMAGE : Name of the container image to use for vulnscout container.
+- VULNSCOUT_ENV_VERBOSE_MODE : Enable or disable the verbose mode (false by default)
+- VULNSCOUT_ENV_FLASK_RUN_PORT : Port vulnscout used for the Web Interface (7275 by default)
+- VULNSCOUT_ENV_FLASK_RUN_HOST : IP used on the host for the Web Interface (0.0.0.0 by default)
+- VULNSCOUT_ENV_IGNORE_PARSING_ERRORS : Enable or disable to ignore parsing error found in the entry SBOM files. (false by default)
+- VULNSCOUT_MATCH_CONDITION : Match-condition to set by default to avoid precise it everytime during the command `-c vulnscout_ci`
 
 ## License
 
