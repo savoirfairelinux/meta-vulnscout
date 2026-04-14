@@ -1,4 +1,6 @@
-![VulnScout logo](./doc/vulnscout-logo.jpeg?raw=true)
+# meta-vulnscout
+
+![VulnScout logo](img/vulnscout-logo.jpeg)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 `meta-vulnscout` is a Yocto meta-layer that uses
@@ -338,7 +340,7 @@ layer is incompatible with the cve-check improvements provided in
 
 ## Result
 
-![Screenshot](doc/vulnscout-ui.png)
+![Screenshot](img/vulnscout-ui.png)
 
 ## Variables Glossary
 
