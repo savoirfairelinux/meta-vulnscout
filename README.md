@@ -10,17 +10,18 @@ Materials (SBOM), and list the vulnerabilities affecting it.
 Currently the supported formats are: CycloneDX, SPDX, Yocto JSON files, and
 OpenVEX.
 
-## Requirements
+## Getting Started
+
+### Requirements
 
 - `docker` command
 
-- `python3-packaging` package. If you are running in CQFD, you should add it in
-  `.cqfd/docker/Dockerfile`.
+- `python3-packaging` package
 
-##  Installation
+### Installation
 
-Clone the repository into the `sources` directory and add it to your
-`build/conf/bblayers.conf` file:
+Clone the repository next to where you store your other layers (like `sources`
+or `layers` directory) and add it to your `build/conf/bblayers.conf` file:
 
 ```sh
 cd sources
@@ -41,7 +42,7 @@ And in your `bblayers.conf` file add the line:
 BBLAYERS += "/path/to/meta-vulnscout"
 ```
 
-## Configuration
+### Configuration
 
 To enable and configure VulnScout, add the following lines to your `local.conf`
 or distro config:
@@ -69,64 +70,9 @@ VulnScout.
 The distro `poky-vulnscout` provided in this repo provides an example of a
 complete usage of meta-vulnscout features.
 
-## Extra VulnScout configuration for cve-check improvements
-
-`meta-vulnscout` provides other classes for accurate cve-check file generation.
-
-### Configuration
-
-Add this line to your distro config or `local.conf` to inherit the extra
-classes:
-
-```sh
-# Enable extra CVE analysis
-require conf/distro/include/vulnscout-cve-check.inc
-```
-
-### Description
-
-- `kernel_generate_cve_exclusions.bbclass` can be used to integrate a library
-  `lib/vulnscout/generate_cve_exclusions_py` derived from the script
-  [generate-cve-exclusions.py](https://docs.yoctoproject.org/dev/singleindex.html#generate-cve-exclusions-py).
-  \
-  It provides extra kernel CVE details and information through the variable
-  `CVE_STATUS`. \
-  This script is implemented through `conf/distro/include/vulnscout-cve-check.inc`
-  It can be manually implement it by a `KERNEL_CLASSES += "kernel_generate_cve_exclusions"`
-
-
-- `improve_kernel_cve_report.bbclass` can be used to integrate the script
-  `improve_kernel_cve_report.py` (reference :
-  [improve_kernel_cve_report](https://docs.yoctoproject.org/dev/singleindex.html#improve-kernel-cve-report-py)).
-  \
-  It reduces CVE false positives by 70%-80% and provides detailed responses
-  for all kernel-related CVEs by analyzing the files used to build the kernel. \
-  This script is implemented through `conf/distro/include/vulnscout-cve-check.inc`
-  It can be manually implement it by a `IMAGE_CLASSES += "improve_kernel_cve_report"`
-
-- `kernel_filter_nonbuilt_cves.bbclass` can be used to update the cve-check file
-  by removing CVEs based on elements that aren't present in the built kernel. A
-  CVE linked with a driver that isn't compiled doesn't make your kernel
-  vulnerable to it. \
-  It reduces the number of kernel CVEs to deal with by
-  around 70%. \
-  This script is implemented through `conf/distro/include/vulnscout-cve-check.inc`
-  It can be manually implement it by a `KERNEL_CLASSES += "kernel_filter_nonbuilt_cves"` or
-  a simple `inherit kernel_filter_nonbuilt_cves` is required in the kernel recipe. After a kernel
-  build tree, new files will be located in your deploy directory. A file with
-  `.kernel_remaining_cves.json` extension will contain the remaining active
-  CVEs, a second file with `.kernel_removed_cves.json` contains the details of
-  CVEs that don't apply to your system. \ Also, the virtual kernel cve-check
-  file and the final cve-check manifest will both be affected by
-  this class analysis setting all non-built CVEs to `Ignored` status with
-  `details` set to `cve-not-compiled-in-kernel` and `description` to
-  `kernel_filter_nonbuilt_cves detected that this CVE is not affecting the
-  current kernel build.`
-
 ## Using VulnScout Web Interface
 
-After a normal build, you should see a new `.vulnscout` folder in `${TOPDIR}/..`
-(can be modified with variable `VULNSCOUT_ROOT_DIR`).
+### Configure and Serve Web Interface
 
 The scan and analysis of vulnerabilities can be started with:
 
@@ -150,6 +96,9 @@ docker exec vulnscout /scan/src/entrypoint.sh --serve
 Without a custom configuration, a web interface will be started at the address
 `http://localhost:7275`
 
+After a normal build, you should see a new `.vulnscout` folder in `${TOPDIR}/..`
+(can be modified with variable `VULNSCOUT_ROOT_DIR`).
+
 ### Projects and Variants
 
 meta-vulnscout organises data into *projects* and *variants*.\
@@ -161,16 +110,19 @@ And the variant is set as `<distro>_<machine>_<image>` of your build (e.g. poky_
 It can be changed through the variable `VULNSCOUT_VARIANT` in the *local.conf* file.
 
 
-## Using VulnScout with a CI
+## Using VulnScout With a CI
 
-It is possible to launch VulnScout in a CI mode, without the web interface using
-the command:
+### Launch CI Mode
+
+It is possible to launch VulnScout in a non-interactive mode, also known as CI
+mode. This mode will scan for vulnerabilities and automatically generate
+reports, without user interaction. To execute it, use the command:
 
 ```sh
 bitbake core-image-minimal -c vulnscout_ci
 ```
 All the files generated by `vulnscout` will be placed by default here:
-`<project_root>/.vulnscout/core-image-minimal/output`
+`<project_root>/.vulnscout/`
 
 ### Options
 
@@ -194,7 +146,7 @@ Now you can specify the match condition with the `VULNSCOUT_MATCH_CONDITION`
 variable every time you use `vulnscout` in CI mode:
 
 ```bash
-VULNSCOUT_MATCH_CONDITION="cvss >= 9.0" BB_ENV_PASSTHROUGH_ADDITIONS+=" VULNSCOUT_MATCH_CONDITION" bitbake core-image-minimal -c vulnscout_ci
+VULNSCOUT_MATCH_CONDITION="cvss >= 9.0 and (pending == true or affected == true)" BB_ENV_PASSTHROUGH_ADDITIONS+=" VULNSCOUT_MATCH_CONDITION" bitbake core-image-minimal -c vulnscout_ci
 ```
 
 With this command, `vulnscout` will list all the CVEs of the vulnerabilities
@@ -208,15 +160,15 @@ VULNSCOUT_MATCH_CONDITION="cvss >= 9.0 or (cvss >= 7.0 and epss >= 50%)" bitbake
 With this command, `vulnscout` will list all vulnerabilities critical (CVSS >=
 9.0) or those with both a high CVSS and EPSS score.
 
-> [!NOTE]
-> Setting up the match condition this way will override the
-> "VULNSCOUT_MATCH_CONDITION"
+> **NOTE**\
+> _Setting up the match condition this way will override the
+> "VULNSCOUT_MATCH_CONDITION"_
 
-> [!WARNING]
-> If you set the "VULNSCOUT_MATCH_CONDITION" with the `export` command in your
-> shell, it will always use it until you set it to null
+> **WARNING**\
+> _If you set the "VULNSCOUT_MATCH_CONDITION" with the `export` command in your
+> shell, it will always use it until you set it to null_
 
-## Generating reports
+## Generating Reports
 
 meta-vulnscout is capable of generating built-in reports and even custom ones.
 The built-in reports are the following:
@@ -228,15 +180,15 @@ The built-in reports are the following:
   - vulnerability_summary.txt
 
 All Custom reports must be placed in the following folder _.vulnscout/custom\_templates_
-Custome report should follow the [template format of VulnScout](https://github.com/savoirfairelinux/vulnscout/blob/main/doc/WRITING_TEMPLATES.adoc).
+Custome report should follow the [template format of VulnScout](https://github.com/savoirfairelinux/vulnscout/blob/main/doc/source/templates.md).
 
-> [!NOTE]
-> The custom_templates could be changed through the
-> "VULNSCOUT_CUSTOM_TEMPLATES_DIR" variable in the *local.conf* file.
+> **NOTE**\
+> _The custom_templates could be changed through the
+> "VULNSCOUT_CUSTOM_TEMPLATES_DIR" variable in the *local.conf* file._
 
 There are two ways to generate reports with meta-vulnscout
 
-### Generating reports without a scan
+### Generating Reports Without a Scan
 Multiple reports can be created within one command without a scan.
 
 You must specify the reports you wish to generate to the variable "VULNSCOUT_REPORT" in the *local.conf* file.
@@ -255,13 +207,20 @@ bitbake core-image-minimal -c vulnscout_report
 
 The reports are generated by default in the folder `.vulnscout/<image_basename-machine_suffix>/`
 
-### Generating reports during CI scan
+### Generating Reports During CI Scan
 
-When launching a CI scan you can specify one or multiple reports to generate it at the same time.
+When launching a CI scan you can specify one or multiple reports to be generated
+at the same time in the variable `VULNSCOUT_REPORT_CI`.
 
-Specify the reports in the variable "VULNSCOUT_REPORT_CI"
+For example, there is a `match_condition.adoc` template embedded in VulnScout
+which is relevant for CI pipelines, and it can be used with:
 
-Now when using the command `-c vulnscout_ci` the reports will be automatically generated.
+```shell
+VULNSCOUT_REPORT_CI = "match_condition.adoc"
+```
+
+Now, when using the command `-c vulnscout_ci` the reports will be automatically
+generated.
 
 ## Exporting SBOM Files
 
@@ -281,35 +240,92 @@ Finally you just need to launch the command:
 bitbake core-image-minimal -c vulnscout_export
 ```
 
-### Use environment variables in templates
+### Use Environment Variables in Templates
 
 In VulnScout templates, you can use environment variables as stated in the
 documentation. These variables should be automatically detected if they are in a
 template in the `custom_templates` directory, and that the template is in use in
 `VULNSCOUT_ENV_GENERATE_DOCUMENTS`.
 
-## Accelerate NVD database download
+## Extra VulnScout Configuration for `cve-check` Improvements
+
+`meta-vulnscout` provides other classes for accurate cve-check file generation.
+
+### Configuration
+
+Add this line to your distro config or `local.conf` to inherit the extra
+classes:
+
+```sh
+# Enable extra CVE analysis
+require conf/distro/include/vulnscout-cve-check.inc
+```
+
+### `kernel_generate_cve_exclusions.bbclass`
+
+`kernel_generate_cve_exclusions.bbclass` makes use of the library
+`lib/vulnscout/generate_cve_exclusions_py` derived from the script
+[generate-cve-exclusions.py](https://docs.yoctoproject.org/dev/singleindex.html#generate-cve-exclusions-py).
+It provides extra kernel CVE details and information through the variable
+`CVE_STATUS`. This class is enabled when inheriting
+`conf/distro/include/vulnscout-cve-check.inc`, but it can be manually added with
+`KERNEL_CLASSES += "kernel_generate_cve_exclusions"`
+
+### `improve_kernel_cve_report.bbclass`
+
+`improve_kernel_cve_report.bbclass` makes use of the script
+`lib/vulnscout/improve_kernel_cve_report.py` (reference :
+[improve_kernel_cve_report](https://docs.yoctoproject.org/dev/singleindex.html#improve-kernel-cve-report-py)).
+It reduces CVE false positives by 70%-80% and provides detailed responses for
+all kernel-related CVEs by analyzing the files used to build the kernel. This
+class is enabled when inheriting `conf/distro/include/vulnscout-cve-check.inc`,
+but it can be manually added with `IMAGE_CLASSES += "improve_kernel_cve_report"`
+
+### `kernel_filter_nonbuilt_cves.bbclass`
+
+`kernel_filter_nonbuilt_cves.bbclass` updates the cve-check file by removing
+CVEs based on elements that aren't present in the built kernel. A CVE linked
+with a driver that isn't compiled doesn't make your kernel vulnerable to it. It
+reduces the number of kernel CVEs to deal with by around 70%.
+
+This class is enabled when inheriting
+`conf/distro/include/vulnscout-cve-check.inc`, but it can be manually added with
+`KERNEL_CLASSES += "kernel_filter_nonbuilt_cves"` or `inherit
+kernel_filter_nonbuilt_cves` in the kernel recipe.
+
+After a kernel build, new files will be located in your deploy directory. A file
+with `.kernel_remaining_cves.json` extension will contain the remaining active
+CVEs, a second file with `.kernel_removed_cves.json` contains the details of
+CVEs that don't apply to your system.
+
+Also, the virtual kernel cve-check file and the final cve-check manifest will
+both be affected by this class analysis setting all non-built CVEs to `Ignored`
+status with `details` set to `cve-not-compiled-in-kernel` and `description` to
+`kernel_filter_nonbuilt_cves detected that this CVE is not affecting the current
+kernel build.`
+
+## Accelerate NVD Database Download
 
 For faster NVD database downloads during VulnScout setup, you can set an NVD
 key with the variable `NVDCVE_API_KEY`.
 
-Yocto Documentation reference : https://docs.yoctoproject.org/ref-manual/variables.html#term-NVDCVE_API_KEY
+Yocto Documentation reference : <https://docs.yoctoproject.org/ref-manual/variables.html#term-NVDCVE_API_KEY>
 
-You can generate a new NVD key at : https://nvd.nist.gov/developers/request-an-api-key
+You can generate a new NVD key at : <https://nvd.nist.gov/developers/request-an-api-key>
 
-## Using the web interface with a building Docker container
+## Using the Web Interface When Building in a Docker Container
 
-The Yocto task `vulnscout` creates and starts the Docker container with a Web
+The Yocto task `vulnscout` creates and starts a Docker container with a Web
 interface available.
 
 Using a Docker container to build the project requires additional configuration
 to access the web interface.
 
-Indeed, the web interface won't be mapped to the host if the building Docker
-container is not properly configured.
+Indeed, the web interface won't be mapped to the host if the Docker container
+used to build is not properly configured.
 
-CQFD requires adding `docker-cli` (for Ubuntu 22.04 and earlier)
-*.cqfd/docker/Dockerfile* and exporting the following variable:
+CQFD requires adding `docker-cli` to *.cqfd/docker/Dockerfile* and exporting the
+following variable:
 
 ``` bash
 export CQFD_EXTRA_RUN_ARGS="-v /run/docker.sock:/run/docker.sock"
@@ -338,33 +354,31 @@ layer is incompatible with the cve-check improvements provided in
 `meta-vulnscout`. As a consequence, do not use
 `conf/distro/include/vulnscout-cve-check.inc` with `meta-sbom-cve-check`.
 
-## Result
-
-![Screenshot](img/vulnscout-ui.png)
-
 ## Variables Glossary
 
 meta-vulnscout can be configured through variables in the *local.conf*.
 Here is a recap of all the variable and their impact:
 
-- VULNSCOUT_ROOT_DIR : Root directory of the ./vulnscout
-- VULNSCOUT_BASE_DIR : Base directory of the ./vulnscout configuration and output files
-- VULNSCOUT_DEPLOY_DIR : Directory of the ouput files (reports, exports, ...)
-- VULNSCOUT_CACHE_DIR : Directory of the cache used by vulnscout (database, docker config file)
-- VULNSCOUT_CUSTOM_TEMPLATES_DIR : Directory used to implement custom template to vulnscout
-- VULNSCOUT_CONFIG_FILE : Docker config file
-- VULNSCOUT_VARIANT : Name of the variant used in vulnscout
-- VULNSCOUT_PROJECT : Name of the project used in vulnscout
-- VULNSCOUT_EXPORT : SBOM files to generate with the command `-c vulnscout_export` ( the value has to bee spdx, openvex or cdx)
-- VULNSCOUT_REPORT : Reports to generate with the command `-c vulnscout_report` using templates.
-- VULNSCOUT_REPORT_CI : Reports generated automatically when during `-c vulnscout_ci`
-- VULNSCOUT_IMAGE_VERSION : Version of the container image to use. If the version set in the variable is not the same as the container image used, recreate the vulnscout container.
-- VULNSCOUT_IMAGE : Name of the container image to use for vulnscout container.
-- VULNSCOUT_ENV_VERBOSE_MODE : Enable or disable the verbose mode (false by default)
-- VULNSCOUT_ENV_FLASK_RUN_PORT : Port vulnscout used for the Web Interface (7275 by default)
-- VULNSCOUT_ENV_FLASK_RUN_HOST : IP used on the host for the Web Interface (0.0.0.0 by default)
-- VULNSCOUT_ENV_IGNORE_PARSING_ERRORS : Enable or disable to ignore parsing error found in the entry SBOM files. (false by default)
-- VULNSCOUT_MATCH_CONDITION : Match-condition to set by default to avoid precise it everytime during the command `-c vulnscout_ci`
+| Variable | Purpose |
+| -------- | ------- |
+| `VULNSCOUT_ROOT_DIR` | Root directory of the ./vulnscout |
+| `VULNSCOUT_BASE_DIR` | Base directory of the ./vulnscout configuration and output files |
+| `VULNSCOUT_DEPLOY_DIR` | Directory of the ouput files (reports, exports, ...) |
+| `VULNSCOUT_CACHE_DIR` | Directory of the cache used by vulnscout (database, docker config file) |
+| `VULNSCOUT_CUSTOM_TEMPLATES_DIR` | Directory used to implement custom template to vulnscout |
+| `VULNSCOUT_CONFIG_FILE` | Docker config file |
+| `VULNSCOUT_VARIANT` | Name of the variant used in vulnscout |
+| `VULNSCOUT_PROJECT` | Name of the project used in vulnscout |
+| `VULNSCOUT_EXPORT` | SBOM files to generate with the command `-c vulnscout_export` ( the value has to bee spdx, openvex or cdx) |
+| `VULNSCOUT_REPORT` | Reports to generate with the command `-c vulnscout_report` using templates. |
+| `VULNSCOUT_REPORT_CI` | Reports generated automatically when during `-c vulnscout_ci` |
+| `VULNSCOUT_IMAGE_VERSION` | Version of the container image to use. If the version set in the variable is not the same as the container image used, recreate the vulnscout container. |
+| `VULNSCOUT_IMAGE` | Name of the container image to use for vulnscout container. |
+| `VULNSCOUT_ENV_VERBOSE_MODE` | Enable or disable the verbose mode (false by default) |
+| `VULNSCOUT_ENV_FLASK_RUN_PORT` | Port vulnscout used for the Web Interface (7275 by default) |
+| `VULNSCOUT_ENV_FLASK_RUN_HOST` | IP used on the host for the Web Interface (0.0.0.0 by default) |
+| `VULNSCOUT_ENV_IGNORE_PARSING_ERRORS` | Enable or disable to ignore parsing error found in the entry SBOM files. (false by default) |
+| `VULNSCOUT_MATCH_CONDITION` | Match-condition to set by default to avoid precise it everytime during the command `-c vulnscout_ci` |
 
 ## License
 
