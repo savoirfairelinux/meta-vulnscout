@@ -28,3 +28,8 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = "sphinx_rtd_theme"
+
+# Set intersphinx mapping with vulnscout documentation.
+intersphinx_mapping = {
+    "vulnscout": ("https://vulnscout.readthedocs.io/en/latest/", None),
+}
