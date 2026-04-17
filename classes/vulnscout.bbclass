@@ -29,39 +29,44 @@ SPDX_3_PATH = "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.json"
 SPDX_2_PATH = "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.tar.zst"
 CVE_CHECK_PATH = "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json"
 SCOUTED_CVE_CHECK_PATH = "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.scouted.json"
+SBOM_CVE_CHECK_SPDX3_PATH = "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}${@d.getVarFlag("SBOM_CVE_CHECK_EXPORT_SPDX3", "ext")}"
 
 python __anonymous() {
     if bb.data.inherits_class("sbom-cve-check", d):
         bb.build.addtask("do_setup_vulnscout", "do_build", "do_sbom_cve_check", d)
-    elif bb.data.inherits_class("create-spdx-2.2", d):
-        bb.build.addtask("do_setup_vulnscout", "do_build", "do_image_complete", d)
     elif bb.data.inherits_class("create-spdx-3.0", d):
         bb.build.addtask("do_setup_vulnscout", "do_build", "do_create_image_sbom_spdx", d)
+    elif bb.data.inherits_class("create-spdx-2.2", d):
+        bb.build.addtask("do_setup_vulnscout", "do_build", "do_image_complete", d)
     else:
-        bb.fatal("Neither create-spdx, nor create-spdx-3.0, nor create-spdx-2.2 class is inherited, please inherit one of these classes in your distro config or local.conf.")
+        bb.fatal("Neither sbom-cve-check, nor create-spdx, nor create-spdx-3.0, nor create-spdx-2.2 class is inherited, please inherit one of these classes in your distro config or local.conf.")
 }
 
 # Helper function to check if Vulnscout required files are present on the host
 check_vulnscout_requirements() {
-    # Check the CVE-Check already exist
-    if ${@bb.utils.contains('INHERIT', 'cve-check', 'true', 'false', d)}; then
-        if ${@'true' if d.getVarFlag('do_image_improve_kernel_cve_report', 'task') else 'false'}; then
-            if [ ! -e "${SCOUTED_CVE_CHECK_PATH}" ]; then
-                bbfatal "Scouted CVE-Check file not found at ${SCOUTED_CVE_CHECK_PATH}. Please rebuild the image."
+    # Check the existence of files based on classes inherited
+    if ${@'true' if bb.data.inherits_class("sbom-cve-check", d) else 'false'}; then
+        if [ ! -e "${SBOM_CVE_CHECK_SPDX3_PATH}" ]; then
+            bbfatal "sbom-cve-check SPDX-3.0 format file not found at ${SBOM_CVE_CHECK_SPDX3_PATH}. Please rebuild the image."
+        fi
+    else
+        if ${@bb.utils.contains('INHERIT', 'cve-check', 'true', 'false', d)}; then
+            if ${@'true' if d.getVarFlag('do_image_improve_kernel_cve_report', 'task') else 'false'}; then
+                if [ ! -e "${SCOUTED_CVE_CHECK_PATH}" ]; then
+                    bbfatal "Scouted CVE-Check file not found at ${SCOUTED_CVE_CHECK_PATH}. Please rebuild the image."
+                fi
+            elif [ ! -e "${CVE_CHECK_PATH}" ]; then
+                bbfatal "CVE-Check file not found at ${CVE_CHECK_PATH}. Please enable 'cve-check' in INHERIT to generate it and rebuild the image."
             fi
-        elif [ ! -e "${CVE_CHECK_PATH}" ]; then
-            bbfatal "CVE-Check file not found at ${CVE_CHECK_PATH}. Please enable 'cve-check' in INHERIT to generate it and rebuild the image."
         fi
-    fi
-
-    # Check the SPDX-2.2 or SPDX-3.0 files already exist based on INHERIT
-    if ${@'true' if bb.data.inherits_class("create-spdx-3.0", d) else 'false'}; then
-        if [ ! -e "${SPDX_3_PATH}" ]; then
-            bbfatal "SPDX-3.0 file not found at ${SPDX_3_PATH}. Please rebuild the image."
-        fi
-    elif ${@'true' if bb.data.inherits_class("create-spdx-2.2", d) else 'false'}; then
-        if [ ! -e "${SPDX_2_PATH}" ]; then
-            bbfatal "SPDX-2.2 file not found at ${SPDX_2_PATH}. Please rebuild the image."
+        if ${@'true' if bb.data.inherits_class("create-spdx-3.0", d) else 'false'}; then
+            if [ ! -e "${SPDX_3_PATH}" ]; then
+                bbfatal "SPDX-3.0 file not found at ${SPDX_3_PATH}. Please rebuild the image."
+            fi
+        elif ${@'true' if bb.data.inherits_class("create-spdx-2.2", d) else 'false'}; then
+            if [ ! -e "${SPDX_2_PATH}" ]; then
+                bbfatal "SPDX-2.2 file not found at ${SPDX_2_PATH}. Please rebuild the image."
+            fi
         fi
     fi
 }
@@ -303,19 +308,22 @@ python do_vulnscout() {
     spdx_2_path = d.getVar("SPDX_2_PATH")
     cve_check_path = d.getVar("CVE_CHECK_PATH")
     scouted_cve_check_path = d.getVar("SCOUTED_CVE_CHECK_PATH")
+    sbom_cve_check_spdx3_path = d.getVar("SBOM_CVE_CHECK_SPDX3_PATH")
 
     port = int(d.getVar("VULNSCOUT_ENV_FLASK_RUN_PORT"))
 
-    # Determine which SPDX file to use based on INHERIT
-    if bb.data.inherits_class("create-spdx-3.0", d):
+    # Determine which SPDX file to use based on inherited class
+    if bb.data.inherits_class("sbom-cve-check", d):
+        spdx_used_path = sbom_cve_check_spdx3_path
+    elif bb.data.inherits_class("create-spdx-3.0", d):
         spdx_used_path = spdx_3_path
-    else:
+    elif bb.data.inherits_class("create-spdx-2.0", d):
         spdx_used_path = spdx_2_path
 
     spdx_real_path = os.path.realpath(spdx_used_path)
 
     # Determine which CVE-Check file to use
-    if os.path.exists(scouted_cve_check_path):
+    if d.getVarFlag('do_image_improve_kernel_cve_report', 'task'):
         cve_check_used_path = scouted_cve_check_path
     else:
         cve_check_used_path = cve_check_path
