@@ -35,8 +35,14 @@ BBLAYERS += "/path/to/meta-vulnscout"
 
 ### Configuration
 
-To enable and configure VulnScout, add the following lines to your `local.conf`
-or distro config:
+The distro `poky-vulnscout` provided in this repo provides an example of a
+complete usage of meta-vulnscout features. For more control on the features
+enabled, please follow the following steps.
+
+#### Enable VulnScout
+
+To enable and configure VulnScout for all images, add the following lines to
+your `local.conf` or distro config:
 
 ```sh
 # Required settings for VulnScout
@@ -44,8 +50,10 @@ require conf/distro/include/vulnscout-core.inc
 ```
 
 This configuration enables VulnScout for all image recipes and should be
-sufficient for most users. If you want more fine-grained control on which images
-are enabling VulnScout, then you can add to your `local.conf` or distro config:
+sufficient for most users.
+
+For more fine-grained control on which images have VulnScout enabled, do not use
+the previous `require` line but add to your `local.conf` or distro config:
 
 ```sh
 # Inherit create-spdx to generate SBOMs
@@ -55,11 +63,18 @@ INHERIT += "create-spdx"
 HOSTTOOLS_NONFATAL += "docker"
 ```
 
-And then manually `inherit vulnscout` in specific image recipes to enable
-VulnScout.
+And then manually add `inherit vulnscout` in specific image recipes to enable
+VulnScout for them.
 
-The distro `poky-vulnscout` provided in this repo provides an example of a
-complete usage of meta-vulnscout features.
+#### Enable CVE Checking
+
+To enable a complete CVE scan of your project, it is recommended to use the
+**sbom-cve-check** tool included in Yocto. Add to your `local.conf` or distro
+config:
+
+```sh
+OE_FRAGMENTS += "core/yocto/sbom-cve-check"
+```
 
 ## Using VulnScout Web Interface
 
@@ -238,63 +253,6 @@ documentation. These variables should be automatically detected if they are in a
 template in the `custom_templates` directory, and that the template is in use in
 `VULNSCOUT_ENV_GENERATE_DOCUMENTS`.
 
-## Extra VulnScout Configuration for `cve-check` Improvements
-
-`meta-vulnscout` provides other classes for accurate cve-check file generation.
-
-### Configuration
-
-Add this line to your distro config or `local.conf` to inherit the extra
-classes:
-
-```sh
-# Enable extra CVE analysis
-require conf/distro/include/vulnscout-cve-check.inc
-```
-
-### `kernel_generate_cve_exclusions.bbclass`
-
-`kernel_generate_cve_exclusions.bbclass` makes use of the library
-`lib/vulnscout/generate_cve_exclusions_py` derived from the script
-[generate-cve-exclusions.py](https://docs.yoctoproject.org/dev/singleindex.html#generate-cve-exclusions-py).
-It provides extra kernel CVE details and information through the variable
-`CVE_STATUS`. This class is enabled when inheriting
-`conf/distro/include/vulnscout-cve-check.inc`, but it can be manually added with
-`KERNEL_CLASSES += "kernel_generate_cve_exclusions"`
-
-### `improve_kernel_cve_report.bbclass`
-
-`improve_kernel_cve_report.bbclass` makes use of the script
-`lib/vulnscout/improve_kernel_cve_report.py` (reference :
-[improve_kernel_cve_report](https://docs.yoctoproject.org/dev/singleindex.html#improve-kernel-cve-report-py)).
-It reduces CVE false positives by 70%-80% and provides detailed responses for
-all kernel-related CVEs by analyzing the files used to build the kernel. This
-class is enabled when inheriting `conf/distro/include/vulnscout-cve-check.inc`,
-but it can be manually added with `IMAGE_CLASSES += "improve_kernel_cve_report"`
-
-### `kernel_filter_nonbuilt_cves.bbclass`
-
-`kernel_filter_nonbuilt_cves.bbclass` updates the cve-check file by removing
-CVEs based on elements that aren't present in the built kernel. A CVE linked
-with a driver that isn't compiled doesn't make your kernel vulnerable to it. It
-reduces the number of kernel CVEs to deal with by around 70%.
-
-This class is enabled when inheriting
-`conf/distro/include/vulnscout-cve-check.inc`, but it can be manually added with
-`KERNEL_CLASSES += "kernel_filter_nonbuilt_cves"` or `inherit
-kernel_filter_nonbuilt_cves` in the kernel recipe.
-
-After a kernel build, new files will be located in your deploy directory. A file
-with `.kernel_remaining_cves.json` extension will contain the remaining active
-CVEs, a second file with `.kernel_removed_cves.json` contains the details of
-CVEs that don't apply to your system.
-
-Also, the virtual kernel cve-check file and the final cve-check manifest will
-both be affected by this class analysis setting all non-built CVEs to `Ignored`
-status with `details` set to `cve-not-compiled-in-kernel` and `description` to
-`kernel_filter_nonbuilt_cves detected that this CVE is not affecting the current
-kernel build.`
-
 ## Accelerate NVD Database Download
 
 For faster NVD database downloads during VulnScout setup, you can set an NVD
@@ -332,13 +290,6 @@ commands:
 ``` bash
 cqfd kas shell -c "bitbake -c <your_Yocto_image> -c vulnscout"
 ```
-
-## Using [meta-sbom-cve-check](https://github.com/bootlin/meta-sbom-cve-check)
-
-The output of `meta-sbom-cve-check` is supported in VulnScout. However, this
-layer is incompatible with the cve-check improvements provided in
-`meta-vulnscout`. As a consequence, do not use
-`conf/distro/include/vulnscout-cve-check.inc` with `meta-sbom-cve-check`.
 
 ## Variables Glossary
 
