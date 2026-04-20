@@ -24,16 +24,7 @@ Clone the repository next to where you store your other layers (like `sources`
 or `layers` directory) and add it to your `build/conf/bblayers.conf` file:
 
 ```sh
-cd sources
 git clone https://github.com/savoirfairelinux/meta-vulnscout.git
-```
-
-If you are using submodules to manage your sub-repos, you should include this
-meta-layer using the following commands:
-
-```shell
-$ cd sources
-$ git submodule add https://github.com/savoirfairelinux/meta-vulnscout.git
 ```
 
 And in your `bblayers.conf` file add the line:
@@ -340,11 +331,6 @@ commands:
 **If you use CQFD and KAS**
 ``` bash
 cqfd kas shell -c "bitbake -c <your_Yocto_image> -c vulnscout"
-```
-
-**If you use CQFD and the script build.sh made by Savoir-faire Linux**
-```bash
-cqfd run ./build.sh -- bitbake <your_Yocto_image> -c vulnscout
 ```
 
 ## Using [meta-sbom-cve-check](https://github.com/bootlin/meta-sbom-cve-check)
