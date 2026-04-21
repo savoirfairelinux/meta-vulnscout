@@ -322,35 +322,41 @@ python do_vulnscout() {
 
     spdx_real_path = os.path.realpath(spdx_used_path)
 
-    # Determine which CVE-Check file to use
-    if d.getVarFlag('do_image_improve_kernel_cve_report', 'task'):
-        cve_check_used_path = scouted_cve_check_path
-    else:
-        cve_check_used_path = cve_check_path
-
-    cve_check_real_path = os.path.realpath(cve_check_used_path)
-
     # Copy the SPDX into the container
     subprocess.run(['docker', 'cp', spdx_real_path, 'vulnscout:/tmp/'], check=True)
     spdx_in_container = f"/tmp/{os.path.basename(spdx_real_path)}"
 
-    # Warn if Flask is already serving inside the container
-    check_vulnscout_port(port)
+    # Determine which CVE-Check file to use, if any
+    if bb.data.inherits_class("cve-check", d):
+        if d.getVarFlag('do_image_improve_kernel_cve_report', 'task'):
+            cve_check_used_path = scouted_cve_check_path
+        else:
+            cve_check_used_path = cve_check_path
 
-    # Check if CVE-Check exist, if yes copy it into the container and launch Vulnscout with it
-    if os.path.exists(cve_check_real_path):
+        cve_check_real_path = os.path.realpath(cve_check_used_path)
+
         # Copy the CVE-Check into the container
         subprocess.run(['docker', 'cp', cve_check_real_path, 'vulnscout:/tmp/'], check=True)
         cve_check_in_container = f"/tmp/{os.path.basename(cve_check_real_path)}"
-
-        # Launch Vulnscout in a new terminal and adding the SPDX and CVE-Check files in the database
-        cmd = f"docker exec vulnscout /scan/src/entrypoint.sh --project {project} --variant {variant} --add-spdx {spdx_in_container} --add-cve-check {cve_check_in_container} --serve ; echo; echo Container exited. Press any key to close...; read x"
-        oe_terminal(cmd, "Vulnscout Container Logs", d)
+        add_cve_check_in_container = f"--add-cve-check {cve_check_in_container}"
     else:
-        # if not launch Vulnscout with only the SPDX file
-        cmd = f"docker exec vulnscout /scan/src/entrypoint.sh --project {project} --variant {variant} --add-spdx {spdx_in_container} --serve ; echo; echo Container exited. Press any key to close...; read x"
-        oe_terminal(cmd, "Vulnscout Container Logs", d)
+        add_cve_check_in_container = ""
 
+    # Warn if Flask is already serving inside the container
+    check_vulnscout_port(port)
+
+    # Launch Vulnscout in a new terminal and add the SPDX and CVE-Check (if any)
+    # files in the database
+    cmd = f"docker exec vulnscout /scan/src/entrypoint.sh \
+        --project {project} \
+        --variant {variant} \
+        --add-spdx {spdx_in_container} \
+        {add_cve_check_in_container} \
+        --serve; \
+        echo 'Container exited. Press any key to close...'; \
+        read x"
+
+    oe_terminal(cmd, "Vulnscout Container Logs", d)
 }
 do_vulnscout[nostamp] = "1"
 do_vulnscout[doc] = "Open a new terminal and launch VulnScout web interface through a Docker container"
