@@ -14,7 +14,7 @@ VULNSCOUT_REPORT ?= "summary.adoc"
 VULNSCOUT_REPORT_CI ?= "match_condition.adoc"
 
 # Repo and version of vulnscout to use
-VULNSCOUT_IMAGE_VERSION ?= "v0.12"
+VULNSCOUT_IMAGE_VERSION ?= "v0.12.1"
 VULNSCOUT_IMAGE ?= "sflinux/vulnscout"
 
 # Variables for the vulnscout configuration
