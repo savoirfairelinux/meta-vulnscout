@@ -188,6 +188,47 @@ def find_all(name, path):
                 result.append(os.path.join(root, filename))
     return result
 
+# Helper function to copy the SPDX and CVE-Check files to the container
+# Returns the in-container path of the SPDX file and, if it exists, of the
+# CVE-Check file (None otherwise)
+def copy_sbom_files_to_container(d):
+    import subprocess
+    import os
+
+    # Retrieve paths for SPDX and CVE-Check files
+    spdx_3_path = d.getVar("SPDX_3_PATH")
+    spdx_2_path = d.getVar("SPDX_2_PATH")
+    cve_check_path = d.getVar("CVE_CHECK_PATH")
+    scouted_cve_check_path = d.getVar("SCOUTED_CVE_CHECK_PATH")
+
+    # Determine which SPDX file to use based on INHERIT
+    if bb.data.inherits_class("create-spdx-3.0", d):
+        spdx_used_path = spdx_3_path
+    else:
+        spdx_used_path = spdx_2_path
+
+    spdx_real_path = os.path.realpath(spdx_used_path)
+
+    # Determine which CVE-Check file to use
+    if os.path.exists(scouted_cve_check_path):
+        cve_check_used_path = scouted_cve_check_path
+    else:
+        cve_check_used_path = cve_check_path
+
+    cve_check_real_path = os.path.realpath(cve_check_used_path)
+
+    # Copy the SPDX into the container
+    subprocess.run(['docker', 'cp', spdx_real_path, 'vulnscout:/tmp/'], check=True)
+    spdx_in_container = f"/tmp/{os.path.basename(spdx_real_path)}"
+
+    # Copy the CVE-Check into the container if it exists
+    cve_check_in_container = None
+    if os.path.exists(cve_check_real_path):
+        subprocess.run(['docker', 'cp', cve_check_real_path, 'vulnscout:/tmp/'], check=True)
+        cve_check_in_container = f"/tmp/{os.path.basename(cve_check_real_path)}"
+
+    return spdx_in_container, cve_check_in_container
+
 # Helper function to copy reports templates in the container
 # If there is not templates on the host, it try anyway
 # they may be already present in the container
@@ -261,6 +302,13 @@ python do_vulnscout_ci() {
     cmd = ['docker', 'exec', 'vulnscout', '/scan/src/entrypoint.sh', '--project', project, '--variant', variant]
     if match_condition:
         cmd += ['--match-condition', match_condition]
+
+    # Copy the SPDX and CVE-Check files into the container and add them to the scan
+    spdx_in_container, cve_check_in_container = copy_sbom_files_to_container(d)
+    cmd += ['--add-spdx', spdx_in_container]
+    if cve_check_in_container:
+        cmd += ['--add-cve-check', cve_check_in_container]
+
     if report_ci:
         # Copy the custom templates or use the ones in the container
         cmd += copy_reports_to_container(report_ci, template_folder)
@@ -298,43 +346,16 @@ python do_vulnscout() {
     variant = d.getVar("VULNSCOUT_VARIANT")
     project = d.getVar("VULNSCOUT_PROJECT")
 
-    # Retrieve paths for SPDX and CVE-Check files
-    spdx_3_path = d.getVar("SPDX_3_PATH")
-    spdx_2_path = d.getVar("SPDX_2_PATH")
-    cve_check_path = d.getVar("CVE_CHECK_PATH")
-    scouted_cve_check_path = d.getVar("SCOUTED_CVE_CHECK_PATH")
-
     port = int(d.getVar("VULNSCOUT_ENV_FLASK_RUN_PORT"))
 
-    # Determine which SPDX file to use based on INHERIT
-    if bb.data.inherits_class("create-spdx-3.0", d):
-        spdx_used_path = spdx_3_path
-    else:
-        spdx_used_path = spdx_2_path
-
-    spdx_real_path = os.path.realpath(spdx_used_path)
-
-    # Determine which CVE-Check file to use
-    if os.path.exists(scouted_cve_check_path):
-        cve_check_used_path = scouted_cve_check_path
-    else:
-        cve_check_used_path = cve_check_path
-
-    cve_check_real_path = os.path.realpath(cve_check_used_path)
-
-    # Copy the SPDX into the container
-    subprocess.run(['docker', 'cp', spdx_real_path, 'vulnscout:/tmp/'], check=True)
-    spdx_in_container = f"/tmp/{os.path.basename(spdx_real_path)}"
+    # Copy the SPDX and CVE-Check files into the container
+    spdx_in_container, cve_check_in_container = copy_sbom_files_to_container(d)
 
     # Warn if Flask is already serving inside the container
     check_vulnscout_port(port)
 
-    # Check if CVE-Check exist, if yes copy it into the container and launch Vulnscout with it
-    if os.path.exists(cve_check_real_path):
-        # Copy the CVE-Check into the container
-        subprocess.run(['docker', 'cp', cve_check_real_path, 'vulnscout:/tmp/'], check=True)
-        cve_check_in_container = f"/tmp/{os.path.basename(cve_check_real_path)}"
-
+    # Check if CVE-Check exist, if yes launch Vulnscout with it
+    if cve_check_in_container:
         # Launch Vulnscout in a new terminal and adding the SPDX and CVE-Check files in the database
         cmd = f"docker exec vulnscout /scan/src/entrypoint.sh --project {project} --variant {variant} --add-spdx {spdx_in_container} --add-cve-check {cve_check_in_container} --serve ; echo; echo Container exited. Press any key to close...; read x"
         oe_terminal(cmd, "Vulnscout Container Logs", d)
