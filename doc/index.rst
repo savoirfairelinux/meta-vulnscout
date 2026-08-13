@@ -1,20 +1,20 @@
-.. meta-vulnscout documentation master file, created by
-   sphinx-quickstart on Tue Apr 14 13:52:29 2026.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+meta-vulnscout
+==============
 
-Welcome to meta-vulnscout's documentation!
-==========================================
+``meta-vulnscout`` is a Yocto meta-layer that uses VulnScout to scan a project,
+export its Software Bill of Materials (SBOM), and list the vulnerabilities
+affecting it.
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
 
-   readme
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
+   getting-started
+   web-interface
+   ci
+   reports
+   exporting-sbom
+   nvd-download
+   docker-web-interface
+   variables
+   license

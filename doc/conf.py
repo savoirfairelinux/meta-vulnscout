@@ -19,8 +19,12 @@ extensions = [
     'sphinx_rtd_theme',
 ]
 
+# Section pages include level-two sections from README.md as their document
+# roots. MyST promotes those first headings to H1 in the rendered documents.
+suppress_warnings = ['myst.header']
+
 templates_path = ['_templates']
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+exclude_patterns = ['_build', 'readme.md', 'Thumbs.db', '.DS_Store']
 
 
 
