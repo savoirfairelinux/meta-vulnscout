@@ -10,6 +10,8 @@ Materials (SBOM), and list the vulnerabilities affecting it.
 Currently the supported formats are: CycloneDX, SPDX, Yocto JSON files, and
 OpenVEX.
 
+<!-- doc-section:getting-started -->
+
 ## Getting Started
 
 ### Requirements
@@ -70,6 +72,8 @@ VulnScout.
 The distro `poky-vulnscout` provided in this repo provides an example of a
 complete usage of meta-vulnscout features.
 
+<!-- doc-section:web-interface -->
+
 ## Using VulnScout Web Interface
 
 ### Configure and Serve Web Interface
@@ -109,6 +113,8 @@ meta-vulnscout organises data into *projects* and *variants*.\
 And the variant is set as `<distro>_<machine>_<image>` of your build (e.g. poky_qemux86-64_ccore-image-minimal).
 It can be changed through the variable `VULNSCOUT_VARIANT` in the *local.conf* file.
 
+
+<!-- doc-section:ci -->
 
 ## Using VulnScout With a CI
 
@@ -168,6 +174,8 @@ With this command, `vulnscout` will list all vulnerabilities critical (CVSS >=
 > _If you set the "VULNSCOUT_MATCH_CONDITION" with the `export` command in your
 > shell, it will always use it until you set it to null_
 
+<!-- doc-section:reports -->
+
 ## Generating Reports
 
 meta-vulnscout is capable of generating built-in reports and even custom ones.
@@ -222,6 +230,8 @@ VULNSCOUT_REPORT_CI = "match_condition.adoc"
 Now, when using the command `-c vulnscout_ci` the reports will be automatically
 generated.
 
+<!-- doc-section:exporting-sbom -->
+
 ## Exporting SBOM Files
 
 meta-vulnscout can export the enriched project data as standard SBOM formats.
@@ -246,6 +256,8 @@ In VulnScout templates, you can use environment variables as stated in the
 documentation. These variables should be automatically detected if they are in a
 template in the `custom_templates` directory, and that the template is in use in
 `VULNSCOUT_ENV_GENERATE_DOCUMENTS`.
+
+<!-- doc-section:cve-check-improvements -->
 
 ## Extra VulnScout Configuration for `cve-check` Improvements
 
@@ -304,6 +316,8 @@ status with `details` set to `cve-not-compiled-in-kernel` and `description` to
 `kernel_filter_nonbuilt_cves detected that this CVE is not affecting the current
 kernel build.`
 
+<!-- doc-section:nvd-download -->
+
 ## Accelerate NVD Database Download
 
 For faster NVD database downloads during VulnScout setup, you can set an NVD
@@ -312,6 +326,8 @@ key with the variable `NVDCVE_API_KEY`.
 Yocto Documentation reference : <https://docs.yoctoproject.org/ref-manual/variables.html#term-NVDCVE_API_KEY>
 
 You can generate a new NVD key at : <https://nvd.nist.gov/developers/request-an-api-key>
+
+<!-- doc-section:docker-web-interface -->
 
 ## Using the Web Interface When Building in a Docker Container
 
@@ -347,12 +363,16 @@ cqfd kas shell -c "bitbake -c <your_Yocto_image> -c vulnscout"
 cqfd run ./build.sh -- bitbake <your_Yocto_image> -c vulnscout
 ```
 
+<!-- doc-section:meta-sbom-cve-check -->
+
 ## Using [meta-sbom-cve-check](https://github.com/bootlin/meta-sbom-cve-check)
 
 The output of `meta-sbom-cve-check` is supported in VulnScout. However, this
 layer is incompatible with the cve-check improvements provided in
 `meta-vulnscout`. As a consequence, do not use
 `conf/distro/include/vulnscout-cve-check.inc` with `meta-sbom-cve-check`.
+
+<!-- doc-section:variables -->
 
 ## Variables Glossary
 
@@ -380,6 +400,8 @@ Here is a recap of all the variable and their impact:
 | `VULNSCOUT_ENV_IGNORE_PARSING_ERRORS` | Enable or disable to ignore parsing error found in the entry SBOM files. (false by default) |
 | `VULNSCOUT_MATCH_CONDITION` | Match-condition to set by default to avoid precise it everytime during the command `-c vulnscout_ci` |
 
+<!-- doc-section:maintainer-and-patches -->
+
 ## Maintainer and Patches
 
 Maintainer: Valentin Boudevin <valentin.boudevin@savoirfairelinux.com>
@@ -399,6 +421,8 @@ second time:
 yocto-check-layer-wrapper /path/to/meta-vulnscout \
   --dependency /path/to/openembedded-core/meta
 ```
+
+<!-- doc-section:license -->
 
 ## License
 
