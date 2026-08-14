@@ -182,6 +182,19 @@ EOF
 do_setup_vulnscout[nostamp] = "1"
 do_setup_vulnscout[doc] = "Configure the env file and create a new container"
 
+do_stop_vulnscout() {
+    docker_status=$(docker inspect vulnscout --format '{{.State.Status}}' 2>/dev/null || true)
+    if [ "$docker_status" = "running" ]; then
+        bbplain "Stopping Vulnscout container..."
+        if ! docker stop vulnscout >/dev/null; then
+            bbfatal "Error: failed to stop the vulnscout container."
+        fi
+    fi
+}
+do_stop_vulnscout[nostamp] = "1"
+do_stop_vulnscout[doc] = "Stop the VulnScout Docker container after a normal build"
+addtask stop_vulnscout after do_setup_vulnscout before do_build
+
 # Helper function to find files in a directory and its subdirectories based on a pattern
 def find_all(name, path):
     import os
@@ -292,6 +305,7 @@ python do_vulnscout_ci() {
             f"\n---Vulnscout has generated multiple files here : {output_vulnscout} ---\n" )
 }
 do_vulnscout_ci[nostamp] = "1"
+do_vulnscout_ci[postfuncs] += "do_stop_vulnscout"
 do_vulnscout_ci[doc] = "Launch VulnScout in non-interactive mode. VULNSCOUT_FAIL_CONDITION can be used to set a fail condition"
 addtask vulnscout_ci after do_setup_vulnscout
 
@@ -359,6 +373,7 @@ python do_vulnscout() {
     oe_terminal(cmd, "Vulnscout Container Logs", d)
 }
 do_vulnscout[nostamp] = "1"
+do_vulnscout[postfuncs] += "do_stop_vulnscout"
 do_vulnscout[doc] = "Open a new terminal and launch VulnScout web interface through a Docker container"
 addtask vulnscout after do_setup_vulnscout
 
@@ -383,6 +398,7 @@ python do_vulnscout_export() {
 
 }
 do_vulnscout_export[nostamp] = "1"
+do_vulnscout_export[postfuncs] += "do_stop_vulnscout"
 do_vulnscout_export[doc] = "Generate export files from VulnScout in a Docker container"
 addtask vulnscout_export after do_setup_vulnscout
 
@@ -405,6 +421,7 @@ python do_vulnscout_report() {
 
 }
 do_vulnscout_report[nostamp] = "1"
+do_vulnscout_report[postfuncs] += "do_stop_vulnscout"
 do_vulnscout_report[doc] = "Generate Vulnscout report files from custom templates"
 addtask do_vulnscout_report after do_setup_vulnscout
 
@@ -425,5 +442,6 @@ python do_vulnscout_no_scan(){
 
 }
 do_vulnscout_no_scan[nostamp] = "1"
+do_vulnscout_no_scan[postfuncs] += "do_stop_vulnscout"
 do_vulnscout_no_scan[doc] = "Open a new terminal and launch VulnScout web interface in a Docker container without any scan"
 addtask vulnscout_no_scan
