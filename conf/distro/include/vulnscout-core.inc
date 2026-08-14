@@ -12,7 +12,3 @@ SPDX_INCLUDE_VEX = "all"
 SPDX_INCLUDE_COMPILED_SOURCES:pn-linux-yocto = "1"
 
 HOSTTOOLS_NONFATAL += "docker"
-
-# Default NVD DB version. The default version use FKIE which is currenctly
-# bugged in Yocto with wrong and incomplete CVEs.
-NVD_DB_VERSION = "NVD2"
