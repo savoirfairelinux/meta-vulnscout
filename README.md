@@ -37,9 +37,11 @@ BBLAYERS += "/path/to/meta-vulnscout"
 
 ### Configuration
 
-The distro `poky-vulnscout` provided in this repo provides an example of a
-complete usage of meta-vulnscout features. For more control on the features
-enabled, please follow the following steps.
+The `defaultsetup-vulnscout` distro provided in this repository enables all
+meta-vulnscout features. Alternatively, keep your existing distro and use one
+of the manual configuration methods below. Do not select
+`defaultsetup-vulnscout` and manually include `vulnscout-core.inc` at the same
+time.
 
 #### Enable VulnScout
 
@@ -68,15 +70,9 @@ HOSTTOOLS_NONFATAL += "docker"
 And then manually add `inherit vulnscout` in specific image recipes to enable
 VulnScout for them.
 
-#### Enable CVE Checking
-
-To enable a complete CVE scan of your project, it is recommended to use the
-**sbom-cve-check** tool included in Yocto. Add to your `local.conf` or distro
-config:
-
-```sh
-OE_FRAGMENTS += "core/yocto/sbom-cve-check"
-```
+The `vulnscout-core.inc` configuration also enables Yocto's
+**sbom-cve-check** class and its recommended settings directly. No
+`OE_FRAGMENTS` entry or generated `toolcfg.conf` is required.
 
 <!-- doc-section:web-interface -->
 
@@ -332,6 +328,26 @@ Here is a recap of all the variable and their impact:
 | `VULNSCOUT_ENV_FLASK_RUN_HOST` | IP used on the host for the Web Interface (0.0.0.0 by default) |
 | `VULNSCOUT_ENV_IGNORE_PARSING_ERRORS` | Enable or disable to ignore parsing error found in the entry SBOM files. (false by default) |
 | `VULNSCOUT_MATCH_CONDITION` | Match-condition to set by default to avoid precise it everytime during the command `-c vulnscout_ci` |
+
+## Maintainer and Patches
+
+Maintainer: Valentin Boudevin <valentin.boudevin@savoirfairelinux.com>
+
+Submit patches and bug reports through the
+[meta-vulnscout GitHub repository](https://github.com/savoirfairelinux/meta-vulnscout).
+Each patch should include a clear commit message and a `Signed-off-by` line.
+
+### Layer Validation
+
+Run `yocto-check-layer` through its wrapper from an initialized OE-Core build
+environment. The wrapper creates an isolated temporary build and prevents a
+KAS configuration that already contains meta-vulnscout from adding the layer a
+second time:
+
+```sh
+yocto-check-layer-wrapper /path/to/meta-vulnscout \
+  --dependency /path/to/openembedded-core/meta
+```
 
 <!-- doc-section:license -->
 
