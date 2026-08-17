@@ -380,6 +380,26 @@ Here is a recap of all the variable and their impact:
 | `VULNSCOUT_ENV_IGNORE_PARSING_ERRORS` | Enable or disable to ignore parsing error found in the entry SBOM files. (false by default) |
 | `VULNSCOUT_MATCH_CONDITION` | Match-condition to set by default to avoid precise it everytime during the command `-c vulnscout_ci` |
 
+## Maintainer and Patches
+
+Maintainer: Valentin Boudevin <valentin.boudevin@savoirfairelinux.com>
+
+Submit patches and bug reports through the
+[meta-vulnscout GitHub repository](https://github.com/savoirfairelinux/meta-vulnscout).
+Each patch should include a clear commit message and a `Signed-off-by` line.
+
+### Layer Validation
+
+Run `yocto-check-layer` through its wrapper from an initialized OE-Core build
+environment. The wrapper creates an isolated temporary build and prevents a
+KAS configuration that already contains meta-vulnscout from adding the layer a
+second time:
+
+```sh
+yocto-check-layer-wrapper /path/to/meta-vulnscout \
+  --dependency /path/to/openembedded-core/meta
+```
+
 ## License
 
 `Copyright (C) 2025-2026 Savoir-faire Linux, Inc.`
