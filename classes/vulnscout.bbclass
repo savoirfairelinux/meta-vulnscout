@@ -306,7 +306,7 @@ python do_vulnscout_ci() {
 }
 do_vulnscout_ci[nostamp] = "1"
 do_vulnscout_ci[postfuncs] += "do_stop_vulnscout"
-do_vulnscout_ci[doc] = "Launch VulnScout in non-interactive mode. VULNSCOUT_FAIL_CONDITION can be used to set a fail condition"
+do_vulnscout_ci[doc] = "Launch VulnScout in non-interactive mode. VULNSCOUT_MATCH_CONDITION can be used to test a match condition on the vulnerabilities"
 addtask vulnscout_ci after do_setup_vulnscout
 
 python do_vulnscout() {
