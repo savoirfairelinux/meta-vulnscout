@@ -26,7 +26,6 @@ VULNSCOUT_MATCH_CONDITION ?= ""
 
 # Variable for the Vulnerabilities files
 SPDX_3_PATH = "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.json"
-SPDX_2_PATH = "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.tar.zst"
 CVE_CHECK_PATH = "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.json"
 SCOUTED_CVE_CHECK_PATH = "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.scouted.json"
 SBOM_CVE_CHECK_SPDX3_PATH = "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}${@d.getVarFlag("SBOM_CVE_CHECK_EXPORT_SPDX3", "ext")}"
@@ -36,10 +35,8 @@ python __anonymous() {
         bb.build.addtask("do_setup_vulnscout", "do_build", "do_sbom_cve_check", d)
     elif bb.data.inherits_class("create-spdx-3.0", d):
         bb.build.addtask("do_setup_vulnscout", "do_build", "do_create_image_sbom_spdx", d)
-    elif bb.data.inherits_class("create-spdx-2.2", d):
-        bb.build.addtask("do_setup_vulnscout", "do_build", "do_image_complete", d)
     else:
-        bb.fatal("Neither sbom-cve-check, nor create-spdx, nor create-spdx-3.0, nor create-spdx-2.2 class is inherited, please inherit one of these classes in your distro config or local.conf.")
+        bb.fatal("Neither sbom-cve-check nor create-spdx-3.0 class is inherited. Please inherit one of these classes in your distro config or local.conf.")
 }
 
 # Helper function to check if Vulnscout required files are present on the host
@@ -62,10 +59,6 @@ check_vulnscout_requirements() {
         if ${@'true' if bb.data.inherits_class("create-spdx-3.0", d) else 'false'}; then
             if [ ! -e "${SPDX_3_PATH}" ]; then
                 bbfatal "SPDX-3.0 file not found at ${SPDX_3_PATH}. Please rebuild the image."
-            fi
-        elif ${@'true' if bb.data.inherits_class("create-spdx-2.2", d) else 'false'}; then
-            if [ ! -e "${SPDX_2_PATH}" ]; then
-                bbfatal "SPDX-2.2 file not found at ${SPDX_2_PATH}. Please rebuild the image."
             fi
         fi
     fi
@@ -319,7 +312,6 @@ python do_vulnscout() {
 
     # Retrieve paths for SPDX and CVE-Check files
     spdx_3_path = d.getVar("SPDX_3_PATH")
-    spdx_2_path = d.getVar("SPDX_2_PATH")
     cve_check_path = d.getVar("CVE_CHECK_PATH")
     scouted_cve_check_path = d.getVar("SCOUTED_CVE_CHECK_PATH")
     sbom_cve_check_spdx3_path = d.getVar("SBOM_CVE_CHECK_SPDX3_PATH")
@@ -331,8 +323,6 @@ python do_vulnscout() {
         spdx_used_path = sbom_cve_check_spdx3_path
     elif bb.data.inherits_class("create-spdx-3.0", d):
         spdx_used_path = spdx_3_path
-    elif bb.data.inherits_class("create-spdx-2.0", d):
-        spdx_used_path = spdx_2_path
 
     spdx_real_path = os.path.realpath(spdx_used_path)
 
