@@ -40,8 +40,8 @@ BBLAYERS += "/path/to/meta-vulnscout"
 The `defaultsetup-vulnscout` distro provided in this repository enables all
 meta-vulnscout features. Alternatively, keep your existing distro and use one
 of the manual configuration methods below. Do not select
-`defaultsetup-vulnscout` and manually include `vulnscout-core.inc` at the same
-time.
+`defaultsetup-vulnscout` and manually include the configuration fragments at
+the same time.
 
 #### Enable VulnScout
 
@@ -49,17 +49,24 @@ To enable and configure VulnScout for all images, add the following lines to
 your `local.conf` or distro config:
 
 ```sh
-# Required settings for VulnScout
+# Enable sbom-cve-check with its recommended settings
+require conf/distro/include/sbom-cve-check.inc
+
+# Enable VulnScout and SPDX generation
 require conf/distro/include/vulnscout-core.inc
 ```
 
-This configuration enables VulnScout for all image recipes and should be
-sufficient for most users.
+This configuration enables VulnScout and Yocto's **sbom-cve-check** class for
+all image recipes and should be sufficient for most users.
 
 For more fine-grained control on which images have VulnScout enabled, do not use
-the previous `require` line but add to your `local.conf` or distro config:
+the `vulnscout-core.inc` fragment. Add the following to your `local.conf` or
+distro config instead:
 
 ```sh
+# Enable sbom-cve-check with its recommended settings
+require conf/distro/include/sbom-cve-check.inc
+
 # Inherit create-spdx to generate SBOMs
 # May be required if not using poky distro
 INHERIT += "create-spdx"
@@ -70,9 +77,9 @@ HOSTTOOLS_NONFATAL += "docker"
 And then manually add `inherit vulnscout` in specific image recipes to enable
 VulnScout for them.
 
-The `vulnscout-core.inc` configuration also enables Yocto's
-**sbom-cve-check** class and its recommended settings directly. No
-`OE_FRAGMENTS` entry or generated `toolcfg.conf` is required.
+The `sbom-cve-check.inc` fragment enables the **sbom-cve-check** image class and
+provides its recommended source and SPDX settings directly. No `OE_FRAGMENTS`
+entry or generated `toolcfg.conf` is required.
 
 <!-- doc-section:web-interface -->
 
