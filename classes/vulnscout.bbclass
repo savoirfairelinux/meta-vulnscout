@@ -136,6 +136,20 @@ EOF
             done
             break
         else
+            mounted_cache=$(docker inspect vulnscout --format '{{range .Mounts}}{{if eq .Destination "/cache/vulnscout"}}{{.Source}}{{end}}{{end}}')
+            mounted_outputs=$(docker inspect vulnscout --format '{{range .Mounts}}{{if eq .Destination "/scan/outputs"}}{{.Source}}{{end}}{{end}}')
+            mounted_config=$(docker inspect vulnscout --format '{{range .Mounts}}{{if eq .Destination "/etc/vulnscout/config.env"}}{{.Source}}{{end}}{{end}}')
+            if [ "$mounted_cache" != "${VULNSCOUT_CACHE_DIR}" ] || \
+               [ "$mounted_outputs" != "${VULNSCOUT_DEPLOY_DIR}" ] || \
+               [ "$mounted_config" != "${VULNSCOUT_CONFIG_FILE}" ]; then
+                bbplain "The existing vulnscout container uses data from another build; recreating it with the current VulnScout directories..."
+                counter=$(expr "$counter" + 1)
+                if ! docker rm -f "$containers"; then
+                    bbfatal "Error: failed to replace the vulnscout container with the current build configuration."
+                fi
+                continue
+            fi
+
             # Check if the container is running, if not start it
             docker_status=$(docker inspect vulnscout --format '{{.State.Status}}')
             if [ "$docker_status" != "running" ]; then
