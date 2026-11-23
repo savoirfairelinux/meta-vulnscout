@@ -93,11 +93,11 @@ The scan and analysis of vulnerabilities can be started with:
 bitbake core-image-minimal -c vulnscout
 ```
 
-VulnScout Docker container can also be started without rescanning for new CVEs
-with the following command:
+To open the web interface with existing results, without importing files or
+requesting scanners, use:
 
 ```sh
-bitbake core-image-minimal -c do_vulnscout_no_scan
+bitbake core-image-minimal -c vulnscout_serve
 ```
 
 Or you can do it manually with the command:
@@ -123,15 +123,43 @@ And the variant is set as `<distro>_<machine>_<image>` of your build (e.g. poky_
 It can be changed through the variable `VULNSCOUT_VARIANT` in the *local.conf* file.
 
 
+### BitBake Commands
+
+Run `bitbake core-image-minimal -c listtasks` to discover tasks. Replace
+`core-image-minimal` with your image, and set task options in `local.conf` or
+in a separate configuration passed with `bitbake -R <file>`.
+
+| Task (`bitbake <image> -c <task>`) | Options and behavior |
+| --- | --- |
+| `vulnscout_add` | Import the image SPDX and optional CVE-check data. Set `VULNSCOUT_INPUTS` to a space-separated list of `format=/path` entries to use files instead. Formats: `spdx`, `cve-check`, `yocto-vex`, `openvex`, `cdx`, `grype`. |
+| `vulnscout_serve` | Open the UI using stored results. `vulnscout_no_scan` is an alias; `vulnscout` still imports the build data and opens the UI. |
+| `vulnscout_scan` | Run the scanners in `VULNSCOUT_SCANNERS`: `grype`, `nvd`, `osv`, `sbom-cve-check`, or `all` (default). Use commas or spaces to separate names. |
+| `vulnscout_match_condition` | Evaluate `VULNSCOUT_MATCH_CONDITION` on stored results without a report. A match fails the task and is distinguished from a command error. |
+| `vulnscout_refresh` | Refresh vulnerability data for the configured project and variant. |
+| `vulnscout_report` | Generate `VULNSCOUT_REPORT` templates. Set `VULNSCOUT_REPORT_FORMAT` to `pdf` or `html` to override the template's default format. |
+| `vulnscout_export` | Set `VULNSCOUT_EXPORT` to one or more of `spdx`, `cdx`, `openvex`, `custom-data`, `custom-openvex`, or `context`. `VULNSCOUT_EXPORT_AMEND = "1"` amends an existing review export. `VULNSCOUT_ALL_VARIANTS = "1"` applies to a custom-OpenVEX-only export. |
+| `vulnscout_import` | Set `VULNSCOUT_IMPORT_KIND` to `custom-data`, `custom-openvex`, or `context`, and set `VULNSCOUT_IMPORT_FILE`. For assessment imports, optionally set `VULNSCOUT_IMPORT_TIMESTAMPS` to `original` or `current`. For custom OpenVEX use `VULNSCOUT_ALL_VARIANTS = "1"` to omit the variant; for context use `VULNSCOUT_RETARGET_CONTEXT = "1"` to target the configured scope. |
+| `vulnscout_asset` | Stage report assets from the space-separated paths in `VULNSCOUT_ASSETS`. |
+| `vulnscout_list` | Set `VULNSCOUT_LIST_KIND` to `projects` (default) or `scans`. Set `VULNSCOUT_LIST_JSON = "1"` for JSON output in the task log. |
+| `vulnscout_config` | Set `VULNSCOUT_CONFIG_ACTION` to `list` (default), `get`, `set`, or `unset`; use `VULNSCOUT_CONFIG_KEY` and, for `set`, `VULNSCOUT_CONFIG_VALUE`. Sensitive keys are masked when displayed. Use the existing layer variables for managed settings, and do not put credentials in BitBake metadata. |
+| `vulnscout_delete` | Set `VULNSCOUT_DELETE_TARGET` to `scan`, `outdated`, `empty-scans`, or `orphaned-vulns`. For `scan`, also set `VULNSCOUT_DELETE_SCAN_ID`. Previews by default; `VULNSCOUT_DELETE_CONFIRM = "1"` applies deletion. Cleanup targets may affect every project in the cache. |
+| `vulnscout_start`, `vulnscout_stop`, `vulnscout_restart` | Manage the layer's container without importing build artifacts. |
+| `vulnscout_version`, `vulnscout_update` | Show the configured image and actual container version, or pull the configured tag and replace the layer's container if its image changed. Update does not select a newer tag. |
+
+The data tasks use `VULNSCOUT_PROJECT` and `VULNSCOUT_VARIANT` where applicable.
+For separate instances, set a unique `VULNSCOUT_CONTAINER`, `VULNSCOUT_BASE_DIR`
+and `VULNSCOUT_ENV_FLASK_RUN_PORT`. The published port binds to localhost.
+Config changes recreate the container on its next start.
+
 <!-- doc-section:ci -->
 
 ## Using VulnScout With a CI
 
 ### Launch CI Mode
 
-It is possible to launch VulnScout in a non-interactive mode, also known as CI
-mode. This mode will scan for vulnerabilities and automatically generate
-reports, without user interaction. To execute it, use the command:
+CI mode evaluates a match condition against stored results and generates the
+configured report. Populate the current image's results first with
+`bitbake core-image-minimal -c vulnscout_add`, then run:
 
 ```sh
 bitbake core-image-minimal -c vulnscout_ci

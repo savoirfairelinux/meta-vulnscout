@@ -16,6 +16,7 @@ VULNSCOUT_REPORT_CI ?= "match_condition.adoc"
 # Repo and version of vulnscout to use
 VULNSCOUT_IMAGE_VERSION ?= "v0.24"
 VULNSCOUT_IMAGE ?= "sflinux/vulnscout"
+VULNSCOUT_CONTAINER ?= "vulnscout"
 
 # Variables for the vulnscout configuration
 VULNSCOUT_ENV_VERBOSE_MODE ?= "false"
@@ -23,6 +24,24 @@ VULNSCOUT_ENV_FLASK_RUN_PORT ?= "7275"
 VULNSCOUT_ENV_FLASK_RUN_HOST ?= "0.0.0.0"
 VULNSCOUT_ENV_IGNORE_PARSING_ERRORS ?= 'false'
 VULNSCOUT_MATCH_CONDITION ?= ""
+VULNSCOUT_INPUTS ?= ""
+VULNSCOUT_SCANNERS ?= "all"
+VULNSCOUT_REPORT_FORMAT ?= ""
+VULNSCOUT_EXPORT_AMEND ?= "0"
+VULNSCOUT_ALL_VARIANTS ?= "0"
+VULNSCOUT_IMPORT_KIND ?= ""
+VULNSCOUT_IMPORT_FILE ?= ""
+VULNSCOUT_IMPORT_TIMESTAMPS ?= ""
+VULNSCOUT_RETARGET_CONTEXT ?= "0"
+VULNSCOUT_ASSETS ?= ""
+VULNSCOUT_LIST_KIND ?= "projects"
+VULNSCOUT_LIST_JSON ?= "0"
+VULNSCOUT_CONFIG_ACTION ?= "list"
+VULNSCOUT_CONFIG_KEY ?= ""
+VULNSCOUT_CONFIG_VALUE ?= ""
+VULNSCOUT_DELETE_TARGET ?= ""
+VULNSCOUT_DELETE_SCAN_ID ?= ""
+VULNSCOUT_DELETE_CONFIRM ?= "0"
 
 # Variable for the Vulnerabilities files
 SPDX_3_PATH = "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.json"
@@ -31,12 +50,36 @@ SCOUTED_CVE_CHECK_PATH = "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.scouted.json"
 SBOM_CVE_CHECK_SPDX3_PATH = "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}${@d.getVarFlag("SBOM_CVE_CHECK_EXPORT_SPDX3", "ext")}"
 
 python __anonymous() {
+    tasks = {
+        "add": "Import the image SBOM or explicit inputs",
+        "scan": "Run selected vulnerability scanners",
+        "match_condition": "Evaluate a policy against stored results",
+        "refresh": "Refresh vulnerability data for the image scope",
+        "import": "Import assessment data or AI context",
+        "asset": "Install report image assets",
+        "list": "List projects and variants or scan runs",
+        "config": "Read or update persistent VulnScout configuration",
+        "delete": "Preview or explicitly apply VulnScout data cleanup",
+        "start": "Start the layer's VulnScout container",
+        "stop": "Stop the layer's VulnScout container",
+        "restart": "Restart the layer's VulnScout container",
+        "version": "Show the configured and actual VulnScout version",
+        "update": "Pull the configured tag and replace an outdated container",
+    }
+    for action, description in tasks.items():
+        task = f"do_vulnscout_{action}"
+        bb.build.addtask(task, "", "", d)
+        d.setVarFlag(task, "nostamp", "1")
+        d.setVarFlag(task, "doc", description)
     if bb.data.inherits_class("sbom-cve-check", d):
-        bb.build.addtask("do_setup_vulnscout", "do_build", "do_sbom_cve_check", d)
+        prerequisite = "do_sbom_cve_check"
     elif bb.data.inherits_class("create-spdx-3.0", d):
-        bb.build.addtask("do_setup_vulnscout", "do_build", "do_create_image_sbom_spdx", d)
+        prerequisite = "do_create_image_sbom_spdx"
     else:
         bb.fatal("Neither sbom-cve-check nor create-spdx-3.0 class is inherited. Please inherit one of these classes in your distro config or local.conf.")
+    bb.build.addtask("do_setup_vulnscout", "do_build", prerequisite, d)
+    if not d.getVar("VULNSCOUT_INPUTS"):
+        bb.build.addtask("do_vulnscout_add", "", prerequisite, d)
 }
 
 # Helper function to check if Vulnscout required files are present on the host
@@ -64,9 +107,7 @@ check_vulnscout_requirements() {
     fi
 }
 
-do_setup_vulnscout() {
-    check_vulnscout_requirements
-
+init_vulnscout_config() {
     # Create an output directory for vulnscout configuration
     mkdir -p ${VULNSCOUT_DEPLOY_DIR}
 
@@ -78,8 +119,8 @@ EOF
 
     #  Populate the config file
     if [ ! -f "${VULNSCOUT_CONFIG_FILE}" ]; then
-    mkdir -p "${VULNSCOUT_CACHE_DIR}"
-    cat > ${VULNSCOUT_CONFIG_FILE} <<EOF
+    mkdir -p "${VULNSCOUT_CACHE_DIR}" "$(dirname "${VULNSCOUT_CONFIG_FILE}")"
+    (umask 077; cat > "${VULNSCOUT_CONFIG_FILE}") <<EOF
 FLASK_RUN_PORT=${VULNSCOUT_ENV_FLASK_RUN_PORT}
 FLASK_RUN_HOST=${VULNSCOUT_ENV_FLASK_RUN_HOST}
 IGNORE_PARSING_ERRORS=${VULNSCOUT_ENV_IGNORE_PARSING_ERRORS}
@@ -105,10 +146,13 @@ EOF
         done
 
     fi
+}
 
+do_setup_vulnscout() {
+    init_vulnscout_config
     counter=0
     while [ $counter -lt 5 ]; do
-        containers=$(docker ps -a --filter 'name=vulnscout' --format '{{.ID}}')
+        containers=$(docker ps -a --filter "name=^/${VULNSCOUT_CONTAINER}$" --format '{{.ID}}') || bbfatal "Cannot access Docker."
         if [ -z "$containers" ]; then
             docker_check_image=$(docker images -q "${VULNSCOUT_IMAGE}:${VULNSCOUT_IMAGE_VERSION}")
             if [ -z "$docker_check_image" ]; then
@@ -118,31 +162,38 @@ EOF
                 fi
             fi
             bbplain "No vulnscout container running, creating..."
-            docker run -d --name vulnscout \
-                -p 7275:7275 \
+            docker run -d --name "${VULNSCOUT_CONTAINER}" \
+                -p "127.0.0.1:${VULNSCOUT_ENV_FLASK_RUN_PORT}:${VULNSCOUT_ENV_FLASK_RUN_PORT}" \
                 --env-file "${VULNSCOUT_CONFIG_FILE}" \
                 -v "${VULNSCOUT_CACHE_DIR}":/cache/vulnscout \
                 -v "${VULNSCOUT_DEPLOY_DIR}":/scan/outputs \
                 -v "${VULNSCOUT_CONFIG_FILE}":/etc/vulnscout/config.env \
-                "${VULNSCOUT_IMAGE}:${VULNSCOUT_IMAGE_VERSION}" daemon
+                "${VULNSCOUT_IMAGE}:${VULNSCOUT_IMAGE_VERSION}" daemon || bbfatal "Cannot create the VulnScout container."
             # Wait for the container process to be ready to accept exec calls
             retries=15
-            until docker exec vulnscout true 2>/dev/null; do
+            until docker exec "${VULNSCOUT_CONTAINER}" true 2>/dev/null; do
                 retries=$(expr "$retries" - 1) || true
                 if [ "$retries" -le 0 ]; then
-                    bbfatal "Error: container failed to start. Check 'docker logs vulnscout'."
+                    bbfatal "Error: container failed to start. Check 'docker logs ${VULNSCOUT_CONTAINER}'."
                 fi
                 sleep 1
             done
             break
         else
-            mounted_cache=$(docker inspect vulnscout --format '{{range .Mounts}}{{if eq .Destination "/cache/vulnscout"}}{{.Source}}{{end}}{{end}}')
-            mounted_outputs=$(docker inspect vulnscout --format '{{range .Mounts}}{{if eq .Destination "/scan/outputs"}}{{.Source}}{{end}}{{end}}')
-            mounted_config=$(docker inspect vulnscout --format '{{range .Mounts}}{{if eq .Destination "/etc/vulnscout/config.env"}}{{.Source}}{{end}}{{end}}')
-            if [ "$mounted_cache" != "${VULNSCOUT_CACHE_DIR}" ] || \
-               [ "$mounted_outputs" != "${VULNSCOUT_DEPLOY_DIR}" ] || \
-               [ "$mounted_config" != "${VULNSCOUT_CONFIG_FILE}" ]; then
-                bbplain "The existing vulnscout container uses data from another build; recreating it with the current VulnScout directories..."
+            mounted_cache=$(docker inspect "$containers" --format '{{range .Mounts}}{{if eq .Destination "/cache/vulnscout"}}{{.Source}}{{end}}{{end}}')
+            mounted_outputs=$(docker inspect "$containers" --format '{{range .Mounts}}{{if eq .Destination "/scan/outputs"}}{{.Source}}{{end}}{{end}}')
+            mounted_config=$(docker inspect "$containers" --format '{{range .Mounts}}{{if eq .Destination "/etc/vulnscout/config.env"}}{{.Source}}{{end}}{{end}}')
+            if [ "$mounted_cache" != "$(realpath -m "${VULNSCOUT_CACHE_DIR}")" ]; then
+                bbfatal "The name '${VULNSCOUT_CONTAINER}' is already used by a container outside this layer's cache."
+            fi
+            container_image=$(docker inspect "$containers" --format '{{.Image}}')
+            port_bindings=$(docker inspect "$containers" --format '{{json .HostConfig.PortBindings}}')
+            requested_image=$(docker image inspect "${VULNSCOUT_IMAGE}:${VULNSCOUT_IMAGE_VERSION}" --format '{{.Id}}' 2>/dev/null || true)
+            if [ "$mounted_outputs" != "$(realpath -m "${VULNSCOUT_DEPLOY_DIR}")" ] || \
+               [ "$mounted_config" != "$(realpath -m "${VULNSCOUT_CONFIG_FILE}")" ] || \
+               [ "$container_image" != "$requested_image" ] || \
+               [ "$port_bindings" != '{"${VULNSCOUT_ENV_FLASK_RUN_PORT}/tcp":[{"HostIp":"127.0.0.1","HostPort":"${VULNSCOUT_ENV_FLASK_RUN_PORT}"}]}' ]; then
+                bbplain "Recreating the VulnScout container with the current image and mounts..."
                 counter=$(expr "$counter" + 1)
                 if ! docker rm -f "$containers"; then
                     bbfatal "Error: failed to replace the vulnscout container with the current build configuration."
@@ -151,31 +202,22 @@ EOF
             fi
 
             # Check if the container is running, if not start it
-            docker_status=$(docker inspect vulnscout --format '{{.State.Status}}')
+            docker_status=$(docker inspect "$containers" --format '{{.State.Status}}')
             if [ "$docker_status" != "running" ]; then
                 bbplain "Vulnscout container exists but is not running, starting..."
-                docker start vulnscout
+                docker start "$containers" || bbfatal "Cannot start the VulnScout container."
                 # Wait for the container process to be ready to accept exec calls
                 retries=15
-                until docker exec vulnscout true 2>/dev/null; do
+                until docker exec "$containers" true 2>/dev/null; do
                     retries=$(expr "$retries" - 1) || true
                     if [ "$retries" -le 0 ]; then
-                        bbfatal "Error: container failed to start. Check 'docker logs vulnscout'."
+                        bbfatal "Error: container failed to start. Check 'docker logs ${VULNSCOUT_CONTAINER}'."
                     fi
                     sleep 1
                 done
                 break
             fi
-            docker_version=$(docker exec vulnscout /scan/src/entrypoint.sh --version)
-            if [ "$docker_version" != "${VULNSCOUT_IMAGE_VERSION}" ]; then
-                bbplain "A vulnscout container is already running but with an outdated version ($docker_version). Removing it and creating a new one with version ${VULNSCOUT_IMAGE_VERSION}..."
-                counter=$(expr "$counter" + 1)
-                if ! docker rm -f "$containers"; then
-                    bbfatal "Error: failed to remove existing container with outdated version. Please remove the container named 'vulnscout' and try again."
-                fi
-            else
-                break
-            fi
+            break
         fi
     done
 
@@ -190,10 +232,17 @@ do_setup_vulnscout[nostamp] = "1"
 do_setup_vulnscout[doc] = "Configure the env file and create a new container"
 
 do_stop_vulnscout() {
-    docker_status=$(docker inspect vulnscout --format '{{.State.Status}}' 2>/dev/null || true)
+    mounted_cache=$(docker inspect "${VULNSCOUT_CONTAINER}" --format '{{range .Mounts}}{{if eq .Destination "/cache/vulnscout"}}{{.Source}}{{end}}{{end}}' 2>/dev/null || true)
+    if [ -n "$mounted_cache" ] && [ "$mounted_cache" != "$(realpath -m "${VULNSCOUT_CACHE_DIR}")" ]; then
+        bbfatal "Refusing to stop a VulnScout container belonging to another cache."
+    fi
+    if [ -z "$mounted_cache" ]; then
+        return
+    fi
+    docker_status=$(docker inspect "${VULNSCOUT_CONTAINER}" --format '{{.State.Status}}' 2>/dev/null || true)
     if [ "$docker_status" = "running" ]; then
         bbplain "Stopping Vulnscout container..."
-        if ! docker stop vulnscout >/dev/null; then
+        if ! docker stop "${VULNSCOUT_CONTAINER}" >/dev/null; then
             bbfatal "Error: failed to stop the vulnscout container."
         fi
     fi
@@ -216,27 +265,16 @@ def find_all(name, path):
 # Helper function to copy reports templates in the container
 # If there is not templates on the host, it try anyway
 # they may be already present in the container
-def copy_reports_to_container(reports, folder):
-    import subprocess
-    import os
-
-    cmd = []
-
-    # Retrieve the templates specified
-    templates = []
+def vulnscout_reports(reports, folder):
+    args = []
+    files = []
     for report in reports:
-        templates.extend(find_all(report, folder))
-
-    # Copy the templates specified in the container
-    for template in templates:
-        subprocess.run(['docker', 'cp', template, 'vulnscout:/tmp/'], check=True)
-        template_in_container = f"/tmp/{os.path.basename(template)}"
-        cmd += ['--report', template_in_container]
-    # If no template on the host, try the report on the container
-    if not templates:
-        for report in reports:
-            cmd += ['--report', report]
-    return cmd
+        templates = find_all(report, folder)
+        if templates:
+            files.extend(("--report", template) for template in templates)
+        else:
+            args += ["--report", report]
+    return args, files
 
 def print_generated_files(files, deploy_dir):
     generated_files = []
@@ -246,11 +284,11 @@ def print_generated_files(files, deploy_dir):
         bb.plain(f"Generated file: {file}")
 
 # Helper function to check if the Vulnscout Flask port is already in use
-def check_vulnscout_port(port):
+def check_vulnscout_port(d, port):
     import subprocess
 
     port_check = subprocess.run(
-        ['docker', 'exec', 'vulnscout', 'python3', '-c',
+        ['docker', 'exec', d.getVar("VULNSCOUT_CONTAINER"), 'python3', '-c',
          f'import socket; s=socket.socket(); s.settimeout(1); print("in_use" if s.connect_ex(("localhost", {port})) == 0 else "free"); s.close()'],
         capture_output=True, text=True
     )
@@ -261,9 +299,6 @@ def check_vulnscout_port(port):
     return False
 
 python do_vulnscout_ci() {
-    import subprocess
-    import os
-
     # Retrieve project and variant information
     variant = d.getVar("VULNSCOUT_VARIANT")
     project = d.getVar("VULNSCOUT_PROJECT")
@@ -283,42 +318,21 @@ python do_vulnscout_ci() {
         bb.fatal(f"Launching vulnscout in CI mode without match condition. Please set a match condition.")
 
     # Launch the vulnscout in CI with the match condition
-    cmd = ['docker', 'exec', 'vulnscout', '/scan/src/entrypoint.sh', '--project', project, '--variant', variant]
-    if match_condition:
-        cmd += ['--match-condition', match_condition]
-    if report_ci:
-        # Copy the custom templates or use the ones in the container
-        cmd += copy_reports_to_container(report_ci, template_folder)
-    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    # Print the logs in the current terminal
-    for line in process.stdout:
-        bb.plain(line.rstrip())
-    process.wait()
-    docker_exit_code = process.returncode
-
-    if report_ci:
-        print_generated_files(report_ci, output_vulnscout)
-
-    # If the container ended with a error code, stop the code and print it.
-    if docker_exit_code == 2:
-        bb.fatal(
-            f"\n----------------Vulnscout trigger match_condition----------------\n"
-            f"----------Trigger condition set : {match_condition}---------- \n"
-            f"\n---Vulnscout exit with code 2 due to match condition triggered: {match_condition}---\n"
-            f"---Vulnscout has generated multiple files here : {output_vulnscout} ---\n" )
-    else:
-        bb.plain(
-            f"\n---Vulnscout scan completed without triggering match condition: {match_condition}---\n"
-            f"\n---Vulnscout has generated multiple files here : {output_vulnscout} ---\n" )
+    args, files = vulnscout_reports(report_ci, template_folder)
+    vulnscout_exec(d, ["--project", project, "--variant", variant, "--match-condition", match_condition] + args, files, match=True)
+    print_generated_files(report_ci, output_vulnscout)
 }
 do_vulnscout_ci[nostamp] = "1"
 do_vulnscout_ci[postfuncs] += "do_stop_vulnscout"
 do_vulnscout_ci[doc] = "Launch VulnScout in non-interactive mode. VULNSCOUT_MATCH_CONDITION can be used to test a match condition on the vulnerabilities"
-addtask vulnscout_ci after do_setup_vulnscout
+addtask vulnscout_ci
 
 python do_vulnscout() {
     import os
+    import shlex
     import subprocess
+
+    bb.build.exec_func("check_vulnscout_requirements", d)
 
     # Retrieve project and variant information
     variant = d.getVar("VULNSCOUT_VARIANT")
@@ -341,7 +355,8 @@ python do_vulnscout() {
     spdx_real_path = os.path.realpath(spdx_used_path)
 
     # Copy the SPDX into the container
-    subprocess.run(['docker', 'cp', spdx_real_path, 'vulnscout:/tmp/'], check=True)
+    container = d.getVar("VULNSCOUT_CONTAINER")
+    subprocess.run(['docker', 'cp', spdx_real_path, f'{container}:/tmp/'], check=True)
     spdx_in_container = f"/tmp/{os.path.basename(spdx_real_path)}"
 
     # Determine which CVE-Check file to use, if any
@@ -354,25 +369,20 @@ python do_vulnscout() {
         cve_check_real_path = os.path.realpath(cve_check_used_path)
 
         # Copy the CVE-Check into the container
-        subprocess.run(['docker', 'cp', cve_check_real_path, 'vulnscout:/tmp/'], check=True)
+        subprocess.run(['docker', 'cp', cve_check_real_path, f'{container}:/tmp/'], check=True)
         cve_check_in_container = f"/tmp/{os.path.basename(cve_check_real_path)}"
-        add_cve_check_in_container = f"--add-cve-check {cve_check_in_container}"
+        add_cve_check_in_container = ["--add-cve-check", cve_check_in_container]
     else:
-        add_cve_check_in_container = ""
+        add_cve_check_in_container = []
 
     # Warn if Flask is already serving inside the container
-    check_vulnscout_port(port)
+    check_vulnscout_port(d, port)
 
     # Launch Vulnscout in a new terminal and add the SPDX and CVE-Check (if any)
     # files in the database
-    cmd = f"docker exec vulnscout /scan/src/entrypoint.sh \
-        --project {project} \
-        --variant {variant} \
-        --add-spdx {spdx_in_container} \
-        {add_cve_check_in_container} \
-        --serve; \
-        echo 'Container exited. Press any key to close...'; \
-        read x"
+    cmd = shlex.join(["docker", "exec", container, "/scan/src/entrypoint.sh",
+                      "--project", project, "--variant", variant, "--add-spdx", spdx_in_container]
+                     + add_cve_check_in_container + ["--serve"])
 
     oe_terminal(cmd, "Vulnscout Container Logs", d)
 }
@@ -382,21 +392,33 @@ do_vulnscout[doc] = "Open a new terminal and launch VulnScout web interface thro
 addtask vulnscout after do_setup_vulnscout
 
 python do_vulnscout_export() {
-    import subprocess
-
     # Retrieve the export formats and deploy directory
     exports = (d.getVar("VULNSCOUT_EXPORT") or "").split()
     deploy_dir = d.getVar("VULNSCOUT_DEPLOY_DIR")
-    cmd_export = ""
+    formats = {
+        "spdx": "spdx", "cdx": "cdx", "openvex": "openvex",
+        "custom-data": "custom-vulnscout-data", "custom-openvex": "custom-openvex-assessments",
+        "context": "context",
+    }
+    args = []
 
     # Check if the export formats are valid
     for export in exports:
-        if export not in ["spdx", "cdx", "openvex"]:
-            bb.fatal(f"Invalid export format: {export}. Supported formats are: spdx, cdx, openvex.")
-        cmd_export += "--export-" + export + " "
+        if export not in formats:
+            bb.fatal(f"Invalid export format: {export}. Supported formats: {', '.join(formats)}.")
+        args.append("--export-" + formats[export])
+    if not args:
+        bb.fatal("Set VULNSCOUT_EXPORT to at least one format.")
+    if d.getVar("VULNSCOUT_EXPORT_AMEND") == "1":
+        args.append("--amend")
+    all_variants = d.getVar("VULNSCOUT_ALL_VARIANTS") == "1"
+    if all_variants:
+        if exports != ["custom-openvex"]:
+            bb.fatal("VULNSCOUT_ALL_VARIANTS requires a custom-openvex-only export.")
+        args.append("--all-variants")
 
     # Launch the creation of all the export files
-    subprocess.run(['docker', 'exec', 'vulnscout', '/scan/src/entrypoint.sh'] + cmd_export.split(), check=True)
+    vulnscout_exec(d, vulnscout_scope(d, all_variants) + args)
 
     print_generated_files(exports, deploy_dir)
 
@@ -404,22 +426,23 @@ python do_vulnscout_export() {
 do_vulnscout_export[nostamp] = "1"
 do_vulnscout_export[postfuncs] += "do_stop_vulnscout"
 do_vulnscout_export[doc] = "Generate export files from VulnScout in a Docker container"
-addtask vulnscout_export after do_setup_vulnscout
+addtask vulnscout_export
 
 python do_vulnscout_report() {
-    import subprocess
-
     # Retrieve the custom templates, report names and deploy directory
     template_folder = (d.getVar("VULNSCOUT_CUSTOM_TEMPLATES_DIR"))
     reports = (d.getVar("VULNSCOUT_REPORT") or "").split()
     deploy_dir = d.getVar("VULNSCOUT_DEPLOY_DIR")
-    cmd_report = ""
-
-    # Call the function to copy the template in the container
-    cmd_report = copy_reports_to_container(reports, template_folder)
+    report_format = d.getVar("VULNSCOUT_REPORT_FORMAT")
+    if report_format not in ("", "pdf", "html"):
+        bb.fatal("VULNSCOUT_REPORT_FORMAT must be pdf or html.")
+    args = vulnscout_scope(d)
+    if report_format:
+        args += ["--report-format", report_format]
 
     # Launch the creation of all the reports
-    subprocess.run(['docker', 'exec', 'vulnscout', '/scan/src/entrypoint.sh'] + cmd_report, check=True)
+    report_args, files = vulnscout_reports(reports, template_folder)
+    vulnscout_exec(d, args + report_args, files)
 
     print_generated_files(reports, deploy_dir)
 
@@ -427,25 +450,289 @@ python do_vulnscout_report() {
 do_vulnscout_report[nostamp] = "1"
 do_vulnscout_report[postfuncs] += "do_stop_vulnscout"
 do_vulnscout_report[doc] = "Generate Vulnscout report files from custom templates"
-addtask do_vulnscout_report after do_setup_vulnscout
+addtask do_vulnscout_report
 
-python do_vulnscout_no_scan(){
-    import subprocess
-
+python do_vulnscout_serve() {
+    import shlex
     port = int(d.getVar("VULNSCOUT_ENV_FLASK_RUN_PORT"))
 
     # Call the function setup_vulnscout
     bb.build.exec_func("do_setup_vulnscout", d)
 
     # Warn if Flask is already serving inside the container
-    check_vulnscout_port(port)
+    check_vulnscout_port(d, port)
 
     # Launching Vulnscout without scan
-    cmd = f"docker exec vulnscout /scan/src/entrypoint.sh --serve ; echo; echo Container exited. Press any key to close...; read x"
+    cmd = shlex.join(["docker", "exec", d.getVar("VULNSCOUT_CONTAINER"), "/scan/src/entrypoint.sh", "--serve"])
     oe_terminal(cmd, "Vulnscout Container Logs", d)
 
+}
+do_vulnscout_serve[nostamp] = "1"
+do_vulnscout_serve[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_serve[doc] = "Open the VulnScout web interface with existing results"
+addtask vulnscout_serve
+
+python do_vulnscout_no_scan() {
+    bb.build.exec_func("do_vulnscout_serve", d)
 }
 do_vulnscout_no_scan[nostamp] = "1"
 do_vulnscout_no_scan[postfuncs] += "do_stop_vulnscout"
 do_vulnscout_no_scan[doc] = "Open a new terminal and launch VulnScout web interface in a Docker container without any scan"
 addtask vulnscout_no_scan
+
+def vulnscout_scope(d, all_variants=False):
+    args = ["--project", d.getVar("VULNSCOUT_PROJECT")]
+    if not all_variants:
+        args += ["--variant", d.getVar("VULNSCOUT_VARIANT")]
+    return args
+
+def vulnscout_exec(d, args, files=(), match=False):
+    import os
+    import subprocess
+
+    for flag, path in files:
+        if not os.path.isfile(path):
+            bb.fatal(f"Missing VulnScout input for {flag}: {path}")
+    bb.build.exec_func("do_setup_vulnscout", d)
+    container = d.getVar("VULNSCOUT_CONTAINER")
+    docker_exec = ["docker", "exec", container]
+    staging = []
+    try:
+        for flag, path in files:
+            directory = subprocess.check_output(docker_exec + ["mktemp", "-d"], text=True).strip()
+            staging.append(directory)
+            target = f"{directory}/{os.path.basename(path)}"
+            subprocess.run(["docker", "cp", os.path.realpath(path), f"{container}:{target}"], check=True)
+            args += [flag, target]
+        with subprocess.Popen(docker_exec + ["/scan/src/entrypoint.sh"] + args,
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as process:
+            for line in process.stdout:
+                bb.plain(line.rstrip())
+            status = process.wait()
+    finally:
+        if staging:
+            subprocess.run(docker_exec + ["rm", "-rf", "--"] + staging, check=False)
+    if match and status == 2:
+        bb.fatal("VulnScout match condition triggered.")
+    if status:
+        bb.fatal(f"VulnScout command failed (exit {status}).")
+
+python do_vulnscout_add() {
+    import os
+    import shlex
+
+    inputs = shlex.split(d.getVar("VULNSCOUT_INPUTS"))
+    formats = {"spdx", "cve-check", "yocto-vex", "openvex", "cdx", "grype"}
+    files = []
+    if inputs:
+        for value in inputs:
+            kind, separator, path = value.partition("=")
+            if not separator or kind not in formats or not path:
+                bb.fatal(f"Invalid VULNSCOUT_INPUTS entry: {value}; expected format=path.")
+            files.append(("--add-" + kind, path))
+    else:
+        bb.build.exec_func("check_vulnscout_requirements", d)
+        if bb.data.inherits_class("sbom-cve-check", d):
+            files.append(("--add-spdx", d.getVar("SBOM_CVE_CHECK_SPDX3_PATH")))
+        else:
+            files.append(("--add-spdx", d.getVar("SPDX_3_PATH")))
+        if bb.data.inherits_class("cve-check", d):
+            variable = "SCOUTED_CVE_CHECK_PATH" if d.getVarFlag("do_image_improve_kernel_cve_report", "task") else "CVE_CHECK_PATH"
+            cve_path = d.getVar(variable)
+            if os.path.isfile(cve_path):
+                files.append(("--add-cve-check", cve_path))
+    vulnscout_exec(d, vulnscout_scope(d), files)
+}
+
+python do_vulnscout_scan() {
+    scanners = d.getVar("VULNSCOUT_SCANNERS").replace(",", " ").split()
+    if not scanners or set(scanners) - {"all", "grype", "nvd", "osv", "sbom-cve-check"}:
+        bb.fatal("VULNSCOUT_SCANNERS must select all, grype, nvd, osv, or sbom-cve-check.")
+    vulnscout_exec(d, vulnscout_scope(d) + ["--perform-scans", ",".join(scanners)])
+}
+
+python do_vulnscout_match_condition() {
+    condition = d.getVar("VULNSCOUT_MATCH_CONDITION")
+    if not condition.strip():
+        bb.fatal("Set VULNSCOUT_MATCH_CONDITION before evaluating a policy.")
+    vulnscout_exec(d, vulnscout_scope(d) + ["--match-condition", condition], match=True)
+}
+
+python do_vulnscout_refresh() {
+    vulnscout_exec(d, vulnscout_scope(d) + ["--refresh-vulnerability-data"])
+}
+
+python do_vulnscout_import() {
+    kind = d.getVar("VULNSCOUT_IMPORT_KIND")
+    path = d.getVar("VULNSCOUT_IMPORT_FILE")
+    formats = {"custom-data": "custom-vulnscout-data", "custom-openvex": "custom-openvex-assessments", "context": "context"}
+    if kind not in formats or not path:
+        bb.fatal("Set VULNSCOUT_IMPORT_KIND (custom-data, custom-openvex, or context) and VULNSCOUT_IMPORT_FILE.")
+    timestamps = d.getVar("VULNSCOUT_IMPORT_TIMESTAMPS")
+    all_variants = d.getVar("VULNSCOUT_ALL_VARIANTS") == "1"
+    retarget = d.getVar("VULNSCOUT_RETARGET_CONTEXT") == "1"
+    args = vulnscout_scope(d, all_variants)
+    if timestamps:
+        if kind == "context" or timestamps not in ("original", "current"):
+            bb.fatal("Use original or current VULNSCOUT_IMPORT_TIMESTAMPS for assessment imports only.")
+        args.append(f"--use-{timestamps}-timestamps")
+    if all_variants:
+        if kind != "custom-openvex":
+            bb.fatal("VULNSCOUT_ALL_VARIANTS applies only to custom OpenVEX imports.")
+        args.append("--all-variants")
+    if retarget:
+        if kind != "context":
+            bb.fatal("VULNSCOUT_RETARGET_CONTEXT applies only to context imports.")
+        args.append("--retarget-context")
+    vulnscout_exec(d, args, [("--import-" + formats[kind], path)])
+}
+
+python do_vulnscout_asset() {
+    import shlex
+
+    assets = shlex.split(d.getVar("VULNSCOUT_ASSETS"))
+    if not assets:
+        bb.fatal("Set VULNSCOUT_ASSETS to one or more asset paths.")
+    vulnscout_exec(d, [], [("--add-asset", path) for path in assets])
+}
+
+python do_vulnscout_list() {
+    kind = d.getVar("VULNSCOUT_LIST_KIND")
+    if kind not in ("projects", "scans"):
+        bb.fatal("VULNSCOUT_LIST_KIND must be projects or scans.")
+    args = ["--json"] if d.getVar("VULNSCOUT_LIST_JSON") == "1" else []
+    vulnscout_exec(d, args + ["--list-" + kind])
+}
+
+python do_vulnscout_delete() {
+    import uuid
+
+    target = d.getVar("VULNSCOUT_DELETE_TARGET")
+    if target not in ("scan", "outdated", "empty-scans", "orphaned-vulns"):
+        bb.fatal("Set VULNSCOUT_DELETE_TARGET to scan, outdated, empty-scans, or orphaned-vulns.")
+    args = ["--dry-run"] if d.getVar("VULNSCOUT_DELETE_CONFIRM") != "1" else []
+    args.append("--delete-" + target)
+    if target == "scan":
+        try:
+            args.append(str(uuid.UUID(d.getVar("VULNSCOUT_DELETE_SCAN_ID"))))
+        except ValueError:
+            bb.fatal("Set VULNSCOUT_DELETE_SCAN_ID to a valid scan UUID.")
+    vulnscout_exec(d, args)
+}
+
+def vulnscout_owned_container(d):
+    import json
+    import os
+    import re
+    import subprocess
+
+    matches = subprocess.check_output(
+        ["docker", "ps", "-aq", "--filter", "name=^/" + re.escape(d.getVar("VULNSCOUT_CONTAINER")) + "$"], text=True
+    ).strip()
+    if not matches:
+        return None
+    container = json.loads(subprocess.check_output(["docker", "container", "inspect", matches]))[0]
+    cache = os.path.realpath(d.getVar("VULNSCOUT_CACHE_DIR"))
+    if not any(mount["Source"] == cache and mount["Destination"] == "/cache/vulnscout"
+               for mount in container["Mounts"]):
+        bb.fatal("The VulnScout container name is already in use outside this layer's cache.")
+    return container
+
+python do_vulnscout_config() {
+    import os
+    import re
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    action = d.getVar("VULNSCOUT_CONFIG_ACTION")
+    key = d.getVar("VULNSCOUT_CONFIG_KEY")
+    value = d.getVar("VULNSCOUT_CONFIG_VALUE")
+    managed = {"FLASK_RUN_PORT", "FLASK_RUN_HOST", "IGNORE_PARSING_ERRORS", "VERBOSE_MODE", "USER_UID", "USER_GID"}
+    if action not in ("list", "get", "set", "unset"):
+        bb.fatal("VULNSCOUT_CONFIG_ACTION must be list, get, set, or unset.")
+    if action != "list" and not re.fullmatch(r"[A-Z_][A-Z0-9_]*", key):
+        bb.fatal("Set VULNSCOUT_CONFIG_KEY to an uppercase environment variable name.")
+    if action in ("set", "unset") and key in managed:
+        bb.fatal("That key is managed by the layer; configure its BitBake setting instead.")
+    if action == "set" and not re.fullmatch(r"[A-Za-z0-9_./:@%+=,?~-]*", value):
+        bb.fatal("VULNSCOUT_CONFIG_VALUE must be a plain, shell-safe environment value.")
+
+    bb.build.exec_func("init_vulnscout_config", d)
+    path = Path(d.getVar("VULNSCOUT_CONFIG_FILE"))
+    lines = path.read_text().splitlines()
+    entries = {}
+    for line in lines:
+        name, separator, current = line.partition("=")
+        if separator and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            entries[name] = current
+    if action in ("list", "get"):
+        if action == "get" and key not in entries:
+            bb.fatal(f"VulnScout config key is not set: {key}")
+        for name in (entries if action == "list" else [key]):
+            if re.search(r"KEY|TOKEN|PASSWORD|PASSWD|SECRET|CREDENTIAL|AUTH|PROXY|URL|DSN", name, re.I):
+                bb.plain(f"{name}=****")
+            else:
+                bb.plain(f"{name}={entries[name]}")
+        return
+
+    if (action == "set" and entries.get(key) == value) or (action == "unset" and key not in entries):
+        return
+    container = vulnscout_owned_container(d)
+    lines = [line for line in lines if not line.startswith(f"{key}=")]
+    if action == "set":
+        lines.append(f"{key}={value}")
+    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as config:
+        try:
+            config.write("\n".join(lines) + "\n")
+            config.close()
+            if container:
+                subprocess.run(["docker", "rm", "-f", container["Id"]], check=True)
+            os.replace(config.name, path)
+        finally:
+            if os.path.exists(config.name):
+                os.unlink(config.name)
+    bb.plain(f"VulnScout config: {action} {key}")
+}
+
+python do_vulnscout_start() {
+    bb.build.exec_func("do_setup_vulnscout", d)
+}
+
+python do_vulnscout_stop() {
+    bb.build.exec_func("do_stop_vulnscout", d)
+}
+
+python do_vulnscout_restart() {
+    bb.build.exec_func("do_stop_vulnscout", d)
+    bb.build.exec_func("do_setup_vulnscout", d)
+}
+
+python do_vulnscout_version() {
+    import subprocess
+
+    image = f'{d.getVar("VULNSCOUT_IMAGE")}:{d.getVar("VULNSCOUT_IMAGE_VERSION")}'
+    bb.plain(f"Configured VulnScout image: {image}")
+    container = vulnscout_owned_container(d)
+    if container:
+        version = next((entry.partition("=")[2] for entry in container["Config"]["Env"] or []
+                        if entry.startswith("VULNSCOUT_VERSION=")), None)
+        if container["State"]["Running"]:
+            version = subprocess.check_output(
+                ["docker", "exec", container["Id"], "/scan/src/entrypoint.sh", "--version"], text=True
+            ).strip()
+        bb.plain(f'Container version: {version or container["Config"]["Image"]}')
+}
+
+python do_vulnscout_update() {
+    import subprocess
+
+    image = f'{d.getVar("VULNSCOUT_IMAGE")}:{d.getVar("VULNSCOUT_IMAGE_VERSION")}'
+    container = vulnscout_owned_container(d)
+    subprocess.run(["docker", "pull", image], check=True)
+    image_id = subprocess.check_output(["docker", "image", "inspect", image, "--format", "{{.Id}}"], text=True).strip()
+    if container and container["Image"] != image_id:
+        bb.build.exec_func("do_setup_vulnscout", d)
+        if not container["State"]["Running"]:
+            bb.build.exec_func("do_stop_vulnscout", d)
+}
