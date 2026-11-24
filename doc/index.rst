@@ -9,11 +9,14 @@ affecting it.
    :maxdepth: 2
    :caption: Contents:
 
+   pipeline
    getting-started
-   web-interface
-   ci
-   reports
-   exporting-sbom
+   import
+   enrich
+   assess
+   enforce
+   share
+   cve-check-improvements
    nvd-download
    docker-web-interface
    variables

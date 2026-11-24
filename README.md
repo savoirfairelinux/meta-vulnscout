@@ -10,6 +10,48 @@ Materials (SBOM), and list the vulnerabilities affecting it.
 Currently the supported formats are: CycloneDX, SPDX, Yocto JSON files, and
 OpenVEX.
 
+<!-- doc-section:pipeline -->
+
+## VulnScout Pipeline
+
+![VulnScout full pipeline: Import, Enrich, Assess, Enforce, and Share, with optional AI assistance during assessment.](img/vulnscout-pipeline.svg)
+
+VulnScout manages the vulnerabilities of a project in five stages that can be
+repeated whenever the inputs, the advisories or the product context change.
+Each stage matches BitBake tasks of this layer:
+
+| Stage | Goal | BitBake tasks |
+| ----- | ---- | ------------- |
+| 1. Import | Add the image SBOM and CVE-Check findings | `vulnscout_add` |
+| 2. Enrich | Run scanners and refresh the vulnerability metadata (EPSS, advisories) | `vulnscout_scan`, `vulnscout_refresh` |
+| 3. Assess | Set the status and rationale of each vulnerability, in the web interface or with optional AI assistance (human-reviewed) | `vulnscout_serve`, `vulnscout_assess`, `vulnscout_review` |
+| 4. Enforce | Fail the build when vulnerabilities match a condition | `vulnscout_match_condition` |
+| 5. Share | Generate reports and export SBOMs and VEX | `vulnscout_report`, `vulnscout_export` |
+
+See [Import](#import), [Enrich](#enrich), [Assess](#assess),
+[Enforce](#enforce) and [Share](#share) for the details of each stage.
+
+### Commands
+
+Each `vulnscout` CLI command has a matching BitBake task named
+`vulnscout_<command>` (hyphens become underscores):
+
+| VulnScout CLI | BitBake task | Purpose |
+| ------------- | ------------ | ------- |
+| `vulnscout add` | `-c vulnscout_add` | Add the image SBOM and CVE-Check, then process them |
+| `vulnscout scan` | `-c vulnscout_scan` | Run the vulnerability scanners (`VULNSCOUT_SCANNERS`) |
+| `vulnscout refresh` | `-c vulnscout_refresh` | Refresh the stored vulnerability data, including EPSS |
+| `vulnscout serve` | `-c vulnscout_serve` | Start the web interface |
+| `vulnscout assess` | `-c vulnscout_assess` | Assess vulnerabilities with the AI agent |
+| `vulnscout review` | `-c vulnscout_review` | Review custom assessments with the AI agent |
+| `vulnscout match-condition` | `-c vulnscout_match_condition` | Fail if a stored vulnerability matches `VULNSCOUT_MATCH_CONDITION` |
+| `vulnscout report` | `-c vulnscout_report` | Generate reports |
+| `vulnscout export` | `-c vulnscout_export` | Export SBOMs |
+
+Only `vulnscout_add` reads the SBOM and CVE-Check files of the image, so it
+depends on the image build. The other tasks use the data already stored by
+`vulnscout_add` and do not rebuild the image.
+
 <!-- doc-section:getting-started -->
 
 ## Getting Started
@@ -81,36 +123,9 @@ The `sbom-cve-check.inc` fragment enables the **sbom-cve-check** image class and
 provides its recommended source and SPDX settings directly. No `OE_FRAGMENTS`
 entry or generated `toolcfg.conf` is required.
 
-<!-- doc-section:web-interface -->
+<!-- doc-section:import -->
 
-## Using VulnScout Web Interface
-
-### Configure and Serve Web Interface
-
-The scan and analysis of vulnerabilities can be started with:
-
-```sh
-bitbake core-image-minimal -c vulnscout
-```
-
-VulnScout Docker container can also be started without rescanning for new CVEs
-with the following command:
-
-```sh
-bitbake core-image-minimal -c do_vulnscout_no_scan
-```
-
-Or you can do it manually with the command:
-
-```shell
-docker exec vulnscout /scan/src/entrypoint.sh --serve
-```
-
-Without a custom configuration, a web interface will be started at the address
-`http://localhost:7275`
-
-After a normal build, you should see a new `.vulnscout` folder in `${TOPDIR}/..`
-(can be modified with variable `VULNSCOUT_ROOT_DIR`).
+## Import
 
 ### Projects and Variants
 
@@ -122,27 +137,110 @@ meta-vulnscout organises data into *projects* and *variants*.\
 And the variant is set as `<distro>_<machine>_<image>` of your build (e.g. poky_qemux86-64_ccore-image-minimal).
 It can be changed through the variable `VULNSCOUT_VARIANT` in the *local.conf* file.
 
+### Import the Image
 
-<!-- doc-section:ci -->
-
-## Using VulnScout With a CI
-
-### Launch CI Mode
-
-It is possible to launch VulnScout in a non-interactive mode, also known as CI
-mode. This mode will scan for vulnerabilities and automatically generate
-reports, without user interaction. To execute it, use the command:
+The image SBOM and CVE-Check are added to VulnScout with:
 
 ```sh
-bitbake core-image-minimal -c vulnscout_ci
+bitbake core-image-minimal -c vulnscout_add
 ```
+
+After a normal build, you should see a new `.vulnscout` folder in `${TOPDIR}/..`
+(can be modified with variable `VULNSCOUT_ROOT_DIR`).
+
+<!-- doc-section:enrich -->
+
+## Enrich
+
+`vulnscout_scan` runs the scanners selected by `VULNSCOUT_SCANNERS` (`grype`,
+`nvd`, `osv`, `sbom-cve-check`, or `all`, the default) on the stored data.
+Several scanners can be listed, separated by spaces or commas:
+
+```sh
+VULNSCOUT_SCANNERS = "nvd osv"
+```
+
+```sh
+bitbake core-image-minimal -c vulnscout_scan
+bitbake core-image-minimal -c vulnscout_refresh
+```
+
+<!-- doc-section:assess -->
+
+## Assess
+
+### Serve Web Interface
+
+```sh
+bitbake core-image-minimal -c vulnscout_serve
+```
+
+`vulnscout_serve` starts the web interface on the stored data, so it can be run
+again later without adding or scanning again.
+
+Or you can do it manually with the command:
+
+```shell
+docker exec vulnscout /scan/src/entrypoint.sh --serve
+```
+
+Without a custom configuration, a web interface will be started at the address
+`http://localhost:7275`
+
+### Assess and Review With AI
+
+`vulnscout_assess` and `vulnscout_review` use the AI provider configured for
+VulnScout (`AI_PROVIDER`, `AI_AUTH_CREDENTIALS`, and optionally `AI_MODEL` and
+`AI_BASE_URL`). Set them in `VULNSCOUT_CONFIG_FILE`, which is read by the
+container. The setup task keeps these entries.
+
+`vulnscout_assess` needs exactly one of `VULNSCOUT_ASSESS_CVES` (vulnerability
+IDs separated by spaces) or `VULNSCOUT_ASSESS_FILTER` (a match-condition
+expression). Each result is a pending AI assessment:
+
+```sh
+VULNSCOUT_ASSESS_FILTER = "pending and cvss >= 9"
+```
+
+`vulnscout_review` reviews custom (user) assessments, and needs exactly one of
+`VULNSCOUT_REVIEW_CVES` or `VULNSCOUT_REVIEW_ASSESSMENT_IDS`. Set
+`VULNSCOUT_REVIEW_RE_REVIEW = "1"` to review targets whose review is still
+fresh.
+
+Both tasks accept `VULNSCOUT_AI_MODEL`, `VULNSCOUT_AI_TIMEOUT` (seconds per
+agent turn) and `VULNSCOUT_AI_DRY_RUN = "1"` to list the targets without calling
+the AI. Use `BB_ENV_PASSTHROUGH_ADDITIONS` to set them from the command line:
+
+```sh
+BB_ENV_PASSTHROUGH_ADDITIONS+=" VULNSCOUT_ASSESS_FILTER VULNSCOUT_AI_DRY_RUN" \
+VULNSCOUT_ASSESS_FILTER="pending and cvss >= 9" VULNSCOUT_AI_DRY_RUN=1 \
+bitbake core-image-minimal -c vulnscout_assess
+```
+
+<!-- doc-section:enforce -->
+
+## Enforce
+
+`vulnscout_match_condition` makes the build fail when a stored vulnerability
+matches a condition. It works on the data stored by `vulnscout_add`, so run the
+import and enrich stages first. It exits with an error when the condition
+matches, so run it last when chaining the tasks:
+
+```sh
+bitbake core-image-minimal -c vulnscout_add
+bitbake core-image-minimal -c vulnscout_scan
+bitbake core-image-minimal -c vulnscout_report
+bitbake core-image-minimal -c vulnscout_match_condition
+```
+
 All the files generated by `vulnscout` will be placed by default here:
 `<project_root>/.vulnscout/`
 
-### Options
+### Match Condition
 
-`vulnscout` in CI mode can be launched with a specific _match condition_ using an
-environment variable.
+`vulnscout_match_condition` uses the _match condition_ set in the
+`VULNSCOUT_MATCH_CONDITION` variable. It can be given from the command line
+with an environment variable.
 
 First you need to export the environment variable
 `BB_ENV_PASSTHROUGH_ADDITIONS+=" VULNSCOUT_MATCH_CONDITION"`\
@@ -152,16 +250,16 @@ For example, using the `export` command:
 export BB_ENV_PASSTHROUGH_ADDITIONS+=" VULNSCOUT_MATCH_CONDITION"
 ```
 
-Or every time you launch `vulnscout` in the CI mode:
+Or every time you launch the task:
 
 ```bash
-BB_ENV_PASSTHROUGH_ADDITIONS+=" VULNSCOUT_MATCH_CONDITION" bitbake core-image-minimal -c vulnscout_ci
+BB_ENV_PASSTHROUGH_ADDITIONS+=" VULNSCOUT_MATCH_CONDITION" bitbake core-image-minimal -c vulnscout_match_condition
 ```
 Now you can specify the match condition with the `VULNSCOUT_MATCH_CONDITION`
-variable every time you use `vulnscout` in CI mode:
+variable every time you use the task:
 
 ```bash
-VULNSCOUT_MATCH_CONDITION="cvss >= 9.0 and (pending == true or affected == true)" BB_ENV_PASSTHROUGH_ADDITIONS+=" VULNSCOUT_MATCH_CONDITION" bitbake core-image-minimal -c vulnscout_ci
+VULNSCOUT_MATCH_CONDITION="cvss >= 9.0 and (pending == true or affected == true)" BB_ENV_PASSTHROUGH_ADDITIONS+=" VULNSCOUT_MATCH_CONDITION" bitbake core-image-minimal -c vulnscout_match_condition
 ```
 
 With this command, `vulnscout` will list all the CVEs of the vulnerabilities
@@ -169,7 +267,7 @@ with a CVSS score equal to or higher than 9.0.
 
 It's possible to set more than one condition:
 ```bash
-VULNSCOUT_MATCH_CONDITION="cvss >= 9.0 or (cvss >= 7.0 and epss >= 50%)" bitbake core-image-minimal -c vulnscout_ci
+VULNSCOUT_MATCH_CONDITION="cvss >= 9.0 or (cvss >= 7.0 and epss >= 50%)" bitbake core-image-minimal -c vulnscout_match_condition
 ```
 
 With this command, `vulnscout` will list all vulnerabilities critical (CVSS >=
@@ -183,9 +281,11 @@ With this command, `vulnscout` will list all vulnerabilities critical (CVSS >=
 > _If you set the "VULNSCOUT_MATCH_CONDITION" with the `export` command in your
 > shell, it will always use it until you set it to null_
 
-<!-- doc-section:reports -->
+<!-- doc-section:share -->
 
-## Generating Reports
+## Share
+
+### Generating Reports
 
 meta-vulnscout is capable of generating built-in reports and even custom ones.
 The built-in reports are the following:
@@ -203,10 +303,7 @@ Custome report should follow the [template format of VulnScout](https://github.c
 > _The custom_templates could be changed through the
 > "VULNSCOUT_CUSTOM_TEMPLATES_DIR" variable in the *local.conf* file._
 
-There are two ways to generate reports with meta-vulnscout
-
-### Generating Reports Without a Scan
-Multiple reports can be created within one command without a scan.
+Multiple reports can be created within one command from the stored data.
 
 You must specify the reports you wish to generate to the variable "VULNSCOUT_REPORT" in the *local.conf* file.
 By default it will generate the summary.adoc
@@ -216,7 +313,7 @@ Example:
 VULNSCOUT_REPORT = "summary.adoc time_estimate.csv"
 ```
 
-Then reports can be created without scan using the command:
+Then reports can be created using the command:
 
 ``` bash
 bitbake core-image-minimal -c vulnscout_report
@@ -224,24 +321,7 @@ bitbake core-image-minimal -c vulnscout_report
 
 The reports are generated by default in the folder `.vulnscout/<image_basename-machine_suffix>/`
 
-### Generating Reports During CI Scan
-
-When launching a CI scan you can specify one or multiple reports to be generated
-at the same time in the variable `VULNSCOUT_REPORT_CI`.
-
-For example, there is a `match_condition.adoc` template embedded in VulnScout
-which is relevant for CI pipelines, and it can be used with:
-
-```shell
-VULNSCOUT_REPORT_CI = "match_condition.adoc"
-```
-
-Now, when using the command `-c vulnscout_ci` the reports will be automatically
-generated.
-
-<!-- doc-section:exporting-sbom -->
-
-## Exporting SBOM Files
+### Exporting SBOM Files
 
 meta-vulnscout can export the enriched project data as standard SBOM formats.
 Exported files are written to the outputs directory (default: `.vulnscout/<image_basename-machine_suffix>/`).
@@ -259,7 +339,7 @@ Finally you just need to launch the command:
 bitbake core-image-minimal -c vulnscout_export
 ```
 
-### Use Environment Variables in Templates
+#### Use Environment Variables in Templates
 
 In VulnScout templates, you can use environment variables as stated in the
 documentation. These variables should be automatically detected if they are in a
@@ -305,8 +385,22 @@ commands:
 
 **If you use CQFD and KAS**
 ``` bash
-cqfd kas shell -c "bitbake -c <your_Yocto_image> -c vulnscout"
+cqfd kas shell -c "bitbake -c <your_Yocto_image> -c vulnscout_serve"
 ```
+
+**If you use CQFD and the script build.sh made by Savoir-faire Linux**
+```bash
+cqfd run ./build.sh -- bitbake <your_Yocto_image> -c vulnscout_serve
+```
+
+<!-- doc-section:meta-sbom-cve-check -->
+
+## Using [meta-sbom-cve-check](https://github.com/bootlin/meta-sbom-cve-check)
+
+The output of `meta-sbom-cve-check` is supported in VulnScout. However, this
+layer is incompatible with the cve-check improvements provided in
+`meta-vulnscout`. As a consequence, do not use
+`conf/distro/include/vulnscout-cve-check.inc` with `meta-sbom-cve-check`.
 
 <!-- doc-section:variables -->
 
@@ -327,7 +421,16 @@ Here is a recap of all the variable and their impact:
 | `VULNSCOUT_PROJECT` | Name of the project used in vulnscout |
 | `VULNSCOUT_EXPORT` | SBOM files to generate with the command `-c vulnscout_export` ( the value has to bee spdx, openvex or cdx) |
 | `VULNSCOUT_REPORT` | Reports to generate with the command `-c vulnscout_report` using templates. |
-| `VULNSCOUT_REPORT_CI` | Reports generated automatically when during `-c vulnscout_ci` |
+| `VULNSCOUT_SCANNERS` | Scanners run by `-c vulnscout_scan`: `grype`, `nvd`, `osv`, `sbom-cve-check` or `all` (default) |
+| `VULNSCOUT_ASSESS_CVES` | Vulnerability IDs assessed by `-c vulnscout_assess` (not with `VULNSCOUT_ASSESS_FILTER`) |
+| `VULNSCOUT_ASSESS_FILTER` | Match-condition expression selecting the vulnerabilities assessed by `-c vulnscout_assess` (not with `VULNSCOUT_ASSESS_CVES`) |
+| `VULNSCOUT_REVIEW_CVES` | Vulnerability IDs whose custom assessments are reviewed by `-c vulnscout_review` (not with `VULNSCOUT_REVIEW_ASSESSMENT_IDS`) |
+| `VULNSCOUT_REVIEW_ASSESSMENT_IDS` | Assessment IDs reviewed by `-c vulnscout_review` (not with `VULNSCOUT_REVIEW_CVES`) |
+| `VULNSCOUT_REVIEW_RE_REVIEW` | Set to `1` to also review targets whose review is still fresh |
+| `VULNSCOUT_AI_MODEL` | Model used by assess and review instead of `AI_MODEL` |
+| `VULNSCOUT_AI_TIMEOUT` | Limit in seconds for each agent turn of assess and review (600 by default) |
+| `VULNSCOUT_AI_DRY_RUN` | Set to `1` to list the assess and review targets without calling the AI |
+| `VULNSCOUT_CHECK_REQUIREMENTS` | Set to `0` to not require the image SBOM and CVE-Check files in the setup (done by the tasks using stored data) |
 | `VULNSCOUT_IMAGE_VERSION` | Version of the container image to use. If the version set in the variable is not the same as the container image used, recreate the vulnscout container. |
 | `VULNSCOUT_IMAGE` | Name of the container image to use for vulnscout container. |
 | `VULNSCOUT_CONTAINER_ENGINE` | Container engine command, `docker` (default) or `podman`. |
@@ -335,7 +438,7 @@ Here is a recap of all the variable and their impact:
 | `VULNSCOUT_ENV_FLASK_RUN_PORT` | Port vulnscout used for the Web Interface (7275 by default) |
 | `VULNSCOUT_ENV_FLASK_RUN_HOST` | IP used on the host for the Web Interface (0.0.0.0 by default) |
 | `VULNSCOUT_ENV_IGNORE_PARSING_ERRORS` | Enable or disable to ignore parsing error found in the entry SBOM files. (false by default) |
-| `VULNSCOUT_MATCH_CONDITION` | Match-condition to set by default to avoid precise it everytime during the command `-c vulnscout_ci` |
+| `VULNSCOUT_MATCH_CONDITION` | Match-condition to set by default to avoid precise it everytime during the command `-c vulnscout_match_condition` |
 
 ## Maintainer and Patches
 
