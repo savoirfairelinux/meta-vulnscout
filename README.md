@@ -16,7 +16,7 @@ OpenVEX.
 
 ### Requirements
 
-- `docker` command
+- `docker` or `podman` command (select with `VULNSCOUT_CONTAINER_ENGINE = "podman"`, default `docker`)
 
 - `python3-packaging` package
 
@@ -71,7 +71,7 @@ require conf/distro/include/sbom-cve-check.inc
 # May be required if not using poky distro
 INHERIT += "create-spdx"
 
-HOSTTOOLS_NONFATAL += "docker"
+HOSTTOOLS_NONFATAL += "docker podman"
 ```
 
 And then manually add `inherit vulnscout` in specific image recipes to enable
@@ -330,6 +330,7 @@ Here is a recap of all the variable and their impact:
 | `VULNSCOUT_REPORT_CI` | Reports generated automatically when during `-c vulnscout_ci` |
 | `VULNSCOUT_IMAGE_VERSION` | Version of the container image to use. If the version set in the variable is not the same as the container image used, recreate the vulnscout container. |
 | `VULNSCOUT_IMAGE` | Name of the container image to use for vulnscout container. |
+| `VULNSCOUT_CONTAINER_ENGINE` | Container engine command, `docker` (default) or `podman`. |
 | `VULNSCOUT_ENV_VERBOSE_MODE` | Enable or disable the verbose mode (false by default) |
 | `VULNSCOUT_ENV_FLASK_RUN_PORT` | Port vulnscout used for the Web Interface (7275 by default) |
 | `VULNSCOUT_ENV_FLASK_RUN_HOST` | IP used on the host for the Web Interface (0.0.0.0 by default) |
