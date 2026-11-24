@@ -108,6 +108,18 @@ EOF
 
     fi
 
+    if ! command -v docker >/dev/null 2>&1; then
+        bbfatal "Error: 'docker' was not found. Install Docker to use VulnScout."
+    fi
+    docker_err=$(docker info 2>&1 >/dev/null) || {
+        case "$docker_err" in
+            *"permission denied"*)
+                bbfatal "Error: permission denied while connecting to Docker. Add your user to the 'docker' group (sudo usermod -aG docker \$USER, then re-login). Details: $docker_err" ;;
+            *)
+                bbfatal "Error: Docker is not usable. Is the daemon running? Details: $docker_err" ;;
+        esac
+    }
+
     counter=0
     while [ $counter -lt 5 ]; do
         containers=$(docker ps -a --filter 'name=vulnscout' --format '{{.ID}}')
