@@ -11,10 +11,24 @@ VULNSCOUT_VARIANT ?= "${DISTRO}_${MACHINE}_${IMAGE_BASENAME}"
 VULNSCOUT_PROJECT ?= "default"
 VULNSCOUT_EXPORT ?= "cdx openvex spdx"
 VULNSCOUT_REPORT ?= "summary.adoc"
-VULNSCOUT_REPORT_CI ?= "match_condition.adoc"
+VULNSCOUT_SCANNERS ?= "all"
+
+# Set to 0 to not require the image SBOM and CVE-Check files in the setup
+VULNSCOUT_CHECK_REQUIREMENTS ?= "1"
+
+# Parameters of the AI assessment and review (the AI provider is configured in
+# the VulnScout config file, see the README)
+VULNSCOUT_ASSESS_CVES ?= ""
+VULNSCOUT_ASSESS_FILTER ?= ""
+VULNSCOUT_REVIEW_CVES ?= ""
+VULNSCOUT_REVIEW_ASSESSMENT_IDS ?= ""
+VULNSCOUT_REVIEW_RE_REVIEW ?= "0"
+VULNSCOUT_AI_MODEL ?= ""
+VULNSCOUT_AI_TIMEOUT ?= ""
+VULNSCOUT_AI_DRY_RUN ?= "0"
 
 # Repo and version of vulnscout to use
-VULNSCOUT_IMAGE_VERSION ?= "v0.24"
+VULNSCOUT_IMAGE_VERSION ?= "v0.25.1"
 VULNSCOUT_IMAGE ?= "sflinux/vulnscout"
 
 # Container engine command: "docker" or "podman"
@@ -70,7 +84,9 @@ check_vulnscout_requirements() {
 }
 
 do_setup_vulnscout() {
-    check_vulnscout_requirements
+    if [ "${VULNSCOUT_CHECK_REQUIREMENTS}" = "1" ]; then
+        check_vulnscout_requirements
+    fi
 
     # Create an output directory for vulnscout configuration
     mkdir -p ${VULNSCOUT_DEPLOY_DIR}
@@ -228,7 +244,7 @@ do_stop_vulnscout[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') =
 do_stop_vulnscout[doc] = "Stop the VulnScout Docker container after a normal build"
 addtask stop_vulnscout after do_setup_vulnscout before do_build
 
-# Helper function to find files in a directory and its subdirectories based on a pattern
+# Helper function to get the container engine command
 def container_engine(d):
     import os
     # Use host binaries first: the native sysroot ships a non-setuid
@@ -236,6 +252,7 @@ def container_engine(d):
     os.environ["PATH"] = "/usr/bin:/usr/sbin:" + os.environ.get("PATH", "")
     return d.getVar("VULNSCOUT_CONTAINER_ENGINE")
 
+# Helper function to find files in a directory and its subdirectories based on a pattern
 def find_all(name, path):
     import os
     import fnmatch
@@ -337,176 +354,232 @@ def check_vulnscout_port(d, port):
                 f"Close the existing session before launching a new one.")
     return False
 
-python do_vulnscout_ci() {
-    engine = container_engine(d)
+# Setup the container for the tasks working on the stored data: they do not
+# need the SBOM and CVE-Check files of the image
+def vulnscout_setup(d):
+    d.setVar("VULNSCOUT_CHECK_REQUIREMENTS", "0")
+    bb.build.exec_func("do_setup_vulnscout", d)
+
+# Helper function to run an entrypoint command in the container.
+# The output is printed in the BitBake log and the exit code is returned.
+def run_vulnscout(d, args):
     import subprocess
-    import os
 
-    # Retrieve project and variant information
-    variant = d.getVar("VULNSCOUT_VARIANT")
-    project = d.getVar("VULNSCOUT_PROJECT")
-    output_vulnscout = d.getVar("VULNSCOUT_DEPLOY_DIR")
-    template_folder = (d.getVar("VULNSCOUT_CUSTOM_TEMPLATES_DIR"))
-    report_ci = (d.getVar("VULNSCOUT_REPORT_CI") or "").split()
+    engine = container_engine(d)
+    process = subprocess.Popen([engine, 'exec', 'vulnscout', '/scan/src/entrypoint.sh'] + args,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    with process.stdout:
+        for line in process.stdout:
+            bb.plain(line.rstrip())
+    return process.wait()
 
-    # Check if a match_condition has been set, if not failed.
-    match_condition = d.getVar("VULNSCOUT_MATCH_CONDITION")
-    if match_condition and report_ci:
-        bb.note(
-            f"\nLaunching vulnscout in CI mode with match condition set has: " + match_condition + "\n"
-            f"Generating scan report " + ", ".join(report_ci) + " Scanning ..." )
-    elif match_condition:
-        bb.note(f"Launching vulnscout in CI mode with match condition set has: " + match_condition + " Scanning ..." )
-    else:
-        bb.fatal(f"Launching vulnscout in CI mode without match condition. Please set a match condition.")
+# Same as run_vulnscout, but any non-zero exit code is fatal
+def run_vulnscout_or_fail(d, command, args):
+    exit_code = run_vulnscout(d, args)
+    if exit_code != 0:
+        bb.fatal(f"vulnscout {command} failed with exit code {exit_code}.")
 
-    # Launch the vulnscout in CI with the match condition
-    cmd = [engine, 'exec', 'vulnscout', '/scan/src/entrypoint.sh', '--project', project, '--variant', variant]
-    if match_condition:
-        cmd += ['--match-condition', match_condition]
+# Project and variant of the current image
+def vulnscout_scope_args(d):
+    return ['--project', d.getVar("VULNSCOUT_PROJECT"), '--variant', d.getVar("VULNSCOUT_VARIANT")]
 
-    # Copy the SPDX and CVE-Check files into the container and add them to the scan
+# Add the SPDX and CVE-Check files of the image to the VulnScout database
+def vulnscout_add(d):
     spdx_in_container, cve_check_in_container = copy_sbom_files_to_container(d)
-    cmd += ['--add-spdx', spdx_in_container]
+    args = vulnscout_scope_args(d) + ['--add-spdx', spdx_in_container]
     if cve_check_in_container:
-        cmd += ['--add-cve-check', cve_check_in_container]
+        args += ['--add-cve-check', cve_check_in_container]
+    run_vulnscout_or_fail(d, "add", args)
 
-    if report_ci:
-        # Copy the custom templates or use the ones in the container
-        cmd += copy_reports_to_container(d, report_ci, template_folder)
-    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    # Print the logs in the current terminal
-    for line in process.stdout:
-        bb.plain(line.rstrip())
-    process.wait()
-    docker_exit_code = process.returncode
-
-    if report_ci:
-        print_generated_files(report_ci, output_vulnscout)
-
-    # If the container ended with a error code, stop the code and print it.
-    if docker_exit_code == 2:
-        bb.fatal(
-            f"\n----------------Vulnscout trigger match_condition----------------\n"
-            f"----------Trigger condition set : {match_condition}---------- \n"
-            f"\n---Vulnscout exit with code 2 due to match condition triggered: {match_condition}---\n"
-            f"---Vulnscout has generated multiple files here : {output_vulnscout} ---\n" )
-    else:
-        bb.plain(
-            f"\n---Vulnscout scan completed without triggering match condition: {match_condition}---\n"
-            f"\n---Vulnscout has generated multiple files here : {output_vulnscout} ---\n" )
-}
-do_vulnscout_ci[nostamp] = "1"
-do_vulnscout_ci[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
-do_vulnscout_ci[postfuncs] += "do_stop_vulnscout"
-do_vulnscout_ci[doc] = "Launch VulnScout in non-interactive mode. VULNSCOUT_MATCH_CONDITION can be used to test a match condition on the vulnerabilities"
-addtask vulnscout_ci after do_setup_vulnscout
-
-python do_vulnscout() {
+# Open the VulnScout web interface in a new terminal
+def vulnscout_serve(d):
     engine = container_engine(d)
-    import os
-    import subprocess
-
-    # Retrieve project and variant information
-    variant = d.getVar("VULNSCOUT_VARIANT")
-    project = d.getVar("VULNSCOUT_PROJECT")
-
     port = int(d.getVar("VULNSCOUT_ENV_FLASK_RUN_PORT"))
-
-    # Copy the SPDX and CVE-Check files into the container
-    spdx_in_container, cve_check_in_container = copy_sbom_files_to_container(d)
 
     # Warn if Flask is already serving inside the container
     check_vulnscout_port(d, port)
 
-    # Check if CVE-Check exist, if yes launch Vulnscout with it
-    if cve_check_in_container:
-        # Launch Vulnscout in a new terminal and adding the SPDX and CVE-Check files in the database
-        cmd = f"{engine} exec vulnscout /scan/src/entrypoint.sh --project {project} --variant {variant} --add-spdx {spdx_in_container} --add-cve-check {cve_check_in_container} --serve ; echo; echo Container exited. Press any key to close...; read x"
-        oe_terminal(cmd, "Vulnscout Container Logs", d)
-    else:
-        # if not launch Vulnscout with only the SPDX file
-        cmd = f"{engine} exec vulnscout /scan/src/entrypoint.sh --project {project} --variant {variant} --add-spdx {spdx_in_container} --serve ; echo; echo Container exited. Press any key to close...; read x"
-        oe_terminal(cmd, "Vulnscout Container Logs", d)
+    cmd = f"{engine} exec vulnscout /scan/src/entrypoint.sh --serve ; echo; echo Container exited. Press any key to close...; read x"
+    oe_terminal(cmd, "Vulnscout Container Logs", d)
 
+# Generate the reports from the templates found on the host or in the container
+def vulnscout_report(d, reports, condition=None):
+    template_folder = d.getVar("VULNSCOUT_CUSTOM_TEMPLATES_DIR")
+    args = vulnscout_scope_args(d) + copy_reports_to_container(d, reports, template_folder)
+    if condition:
+        args += ['--match-condition', condition]
+    exit_code = run_vulnscout(d, args)
+    # With a condition, a match (exit code 2) still means the reports were written
+    if exit_code != 0 and not (condition and exit_code == 2):
+        bb.fatal(f"vulnscout report failed with exit code {exit_code}.")
+    print_generated_files(reports, d.getVar("VULNSCOUT_DEPLOY_DIR"))
+
+# Test the stored vulnerabilities against the match condition
+def vulnscout_match_condition(d, condition):
+    output_vulnscout = d.getVar("VULNSCOUT_DEPLOY_DIR")
+    exit_code = run_vulnscout(d, vulnscout_scope_args(d) + ['--match-condition', condition])
+
+    if exit_code == 2:
+        bb.fatal(
+            f"\n----------------Vulnscout trigger match_condition----------------\n"
+            f"----------Trigger condition set : {condition}---------- \n"
+            f"\n---Vulnscout exit with code 2 due to match condition triggered: {condition}---\n"
+            f"---Vulnscout has generated multiple files here : {output_vulnscout} ---\n" )
+    elif exit_code != 0:
+        bb.fatal(f"vulnscout match-condition failed with exit code {exit_code}.")
+    bb.plain(
+        f"\n---Vulnscout scan completed without triggering match condition: {condition}---\n"
+        f"\n---Vulnscout has generated multiple files here : {output_vulnscout} ---\n" )
+
+# Option shared by assess and review
+def vulnscout_ai_options(d):
+    args = []
+    model = d.getVar("VULNSCOUT_AI_MODEL")
+    timeout = d.getVar("VULNSCOUT_AI_TIMEOUT")
+    if model:
+        args += ['--model', model]
+    if timeout:
+        if not timeout.isdigit() or int(timeout) < 1:
+            bb.fatal("VULNSCOUT_AI_TIMEOUT must be a positive number of seconds.")
+        args += ['--timeout', timeout]
+    if d.getVar("VULNSCOUT_AI_DRY_RUN") == "1":
+        args += ['--dry-run']
+    return args
+
+python do_vulnscout_add() {
+    # Import the SBOM and the CVE-Check of the image
+    vulnscout_add(d)
 }
-do_vulnscout[nostamp] = "1"
-do_vulnscout[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
-do_vulnscout[postfuncs] += "do_stop_vulnscout"
-do_vulnscout[doc] = "Open a new terminal and launch VulnScout web interface through a Docker container"
-addtask vulnscout after do_setup_vulnscout
+do_vulnscout_add[nostamp] = "1"
+do_vulnscout_add[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_add[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_add[doc] = "Add the SBOM and the CVE-Check of the image to VulnScout, then process them"
+addtask vulnscout_add after do_setup_vulnscout
 
-python do_vulnscout_export() {
-    engine = container_engine(d)
-    import subprocess
-
-    # Retrieve the export formats and deploy directory
-    exports = (d.getVar("VULNSCOUT_EXPORT") or "").split()
-    deploy_dir = d.getVar("VULNSCOUT_DEPLOY_DIR")
-    cmd_export = ""
-
-    # Check if the export formats are valid
-    for export in exports:
-        if export not in ["spdx", "cdx", "openvex"]:
-            bb.fatal(f"Invalid export format: {export}. Supported formats are: spdx, cdx, openvex.")
-        cmd_export += "--export-" + export + " "
-
-    # Launch the creation of all the export files
-    subprocess.run([engine, 'exec', 'vulnscout', '/scan/src/entrypoint.sh'] + cmd_export.split(), check=True)
-
-    print_generated_files(exports, deploy_dir)
-
+python do_vulnscout_scan() {
+    vulnscout_setup(d)
+    scanners = (d.getVar("VULNSCOUT_SCANNERS") or "all").replace(",", " ").split()
+    valid = ["grype", "nvd", "osv", "sbom-cve-check", "all"]
+    for scanner in scanners:
+        if scanner not in valid:
+            bb.fatal(f"Invalid scanner: {scanner}. Supported scanners are: {', '.join(valid)}.")
+    run_vulnscout_or_fail(d, "scan", vulnscout_scope_args(d) + ['--perform-scans', ",".join(scanners)])
 }
-do_vulnscout_export[nostamp] = "1"
-do_vulnscout_export[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
-do_vulnscout_export[postfuncs] += "do_stop_vulnscout"
-do_vulnscout_export[doc] = "Generate export files from VulnScout in a Docker container"
-addtask vulnscout_export after do_setup_vulnscout
+do_vulnscout_scan[nostamp] = "1"
+do_vulnscout_scan[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_scan[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_scan[doc] = "Run the vulnerability scanners listed in VULNSCOUT_SCANNERS on the stored data"
+addtask vulnscout_scan
+
+python do_vulnscout_refresh() {
+    vulnscout_setup(d)
+    run_vulnscout_or_fail(d, "refresh", vulnscout_scope_args(d) + ['--refresh-vulnerability-data'])
+}
+do_vulnscout_refresh[nostamp] = "1"
+do_vulnscout_refresh[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_refresh[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_refresh[doc] = "Refresh the stored vulnerability data of the image, including EPSS"
+addtask vulnscout_refresh
+
+python do_vulnscout_assess() {
+    vulnscout_setup(d)
+    cves = (d.getVar("VULNSCOUT_ASSESS_CVES") or "").split()
+    condition = d.getVar("VULNSCOUT_ASSESS_FILTER")
+    if bool(cves) == bool(condition):
+        bb.fatal("vulnscout assess needs exactly one of VULNSCOUT_ASSESS_CVES or VULNSCOUT_ASSESS_FILTER.")
+
+    args = ['--project', d.getVar("VULNSCOUT_PROJECT"), '--ai-assess', '--variant', d.getVar("VULNSCOUT_VARIANT")]
+    for cve in cves:
+        args += ['--cve', cve]
+    if condition:
+        args += ['--filter', condition]
+    run_vulnscout_or_fail(d, "assess", args + vulnscout_ai_options(d))
+}
+do_vulnscout_assess[nostamp] = "1"
+do_vulnscout_assess[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_assess[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_assess[doc] = "Assess vulnerabilities with the AI agent. Set VULNSCOUT_ASSESS_CVES or VULNSCOUT_ASSESS_FILTER"
+addtask vulnscout_assess
+
+python do_vulnscout_review() {
+    vulnscout_setup(d)
+    cves = (d.getVar("VULNSCOUT_REVIEW_CVES") or "").split()
+    assessment_ids = (d.getVar("VULNSCOUT_REVIEW_ASSESSMENT_IDS") or "").split()
+    if bool(cves) == bool(assessment_ids):
+        bb.fatal("vulnscout review needs exactly one of VULNSCOUT_REVIEW_CVES or VULNSCOUT_REVIEW_ASSESSMENT_IDS.")
+
+    args = ['--project', d.getVar("VULNSCOUT_PROJECT"), '--ai-review']
+    if cves:
+        args += ['--variant', d.getVar("VULNSCOUT_VARIANT")]
+    for cve in cves:
+        args += ['--cve', cve]
+    for assessment_id in assessment_ids:
+        args += ['--assessment-id', assessment_id]
+    if d.getVar("VULNSCOUT_REVIEW_RE_REVIEW") == "1":
+        args += ['--re-review']
+    run_vulnscout_or_fail(d, "review", args + vulnscout_ai_options(d))
+}
+do_vulnscout_review[nostamp] = "1"
+do_vulnscout_review[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_review[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_review[doc] = "Review custom assessments with the AI agent. Set VULNSCOUT_REVIEW_CVES or VULNSCOUT_REVIEW_ASSESSMENT_IDS"
+addtask vulnscout_review
+
+python do_vulnscout_match_condition() {
+    vulnscout_setup(d)
+    condition = d.getVar("VULNSCOUT_MATCH_CONDITION")
+    if not condition:
+        bb.fatal("vulnscout match-condition needs a match condition. Please set VULNSCOUT_MATCH_CONDITION.")
+    vulnscout_match_condition(d, condition)
+}
+do_vulnscout_match_condition[nostamp] = "1"
+do_vulnscout_match_condition[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_match_condition[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_match_condition[doc] = "Test the stored vulnerabilities against VULNSCOUT_MATCH_CONDITION. Fails if any vulnerability matches"
+addtask vulnscout_match_condition
 
 python do_vulnscout_report() {
-    engine = container_engine(d)
-    import subprocess
-
-    # Retrieve the custom templates, report names and deploy directory
-    template_folder = (d.getVar("VULNSCOUT_CUSTOM_TEMPLATES_DIR"))
+    vulnscout_setup(d)
     reports = (d.getVar("VULNSCOUT_REPORT") or "").split()
-    deploy_dir = d.getVar("VULNSCOUT_DEPLOY_DIR")
-    cmd_report = ""
-
-    # Call the function to copy the template in the container
-    cmd_report = copy_reports_to_container(d, reports, template_folder)
-
-    # Launch the creation of all the reports
-    subprocess.run([engine, 'exec', 'vulnscout', '/scan/src/entrypoint.sh'] + cmd_report, check=True)
-
-    print_generated_files(reports, deploy_dir)
-
+    vulnscout_report(d, reports)
 }
 do_vulnscout_report[nostamp] = "1"
 do_vulnscout_report[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
 do_vulnscout_report[postfuncs] += "do_stop_vulnscout"
 do_vulnscout_report[doc] = "Generate Vulnscout report files from custom templates"
-addtask do_vulnscout_report after do_setup_vulnscout
+addtask vulnscout_report
 
-python do_vulnscout_no_scan(){
-    engine = container_engine(d)
-    import subprocess
+python do_vulnscout_export() {
+    vulnscout_setup(d)
+    # Retrieve the export formats and deploy directory
+    exports = (d.getVar("VULNSCOUT_EXPORT") or "").split()
+    deploy_dir = d.getVar("VULNSCOUT_DEPLOY_DIR")
 
-    port = int(d.getVar("VULNSCOUT_ENV_FLASK_RUN_PORT"))
+    # Check if the export formats are valid
+    for export in exports:
+        if export not in ["spdx", "cdx", "openvex"]:
+            bb.fatal(f"Invalid export format: {export}. Supported formats are: spdx, cdx, openvex.")
 
-    # Call the function setup_vulnscout
-    bb.build.exec_func("do_setup_vulnscout", d)
+    # Launch the creation of all the export files
+    cmd_export = vulnscout_scope_args(d)
+    for export in exports:
+        cmd_export += ['--export-' + export]
+    run_vulnscout_or_fail(d, "export", cmd_export)
 
-    # Warn if Flask is already serving inside the container
-    check_vulnscout_port(d, port)
-
-    # Launching Vulnscout without scan
-    cmd = f"{engine} exec vulnscout /scan/src/entrypoint.sh --serve ; echo; echo Container exited. Press any key to close...; read x"
-    oe_terminal(cmd, "Vulnscout Container Logs", d)
-
+    print_generated_files(exports, deploy_dir)
 }
-do_vulnscout_no_scan[nostamp] = "1"
-do_vulnscout_no_scan[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
-do_vulnscout_no_scan[postfuncs] += "do_stop_vulnscout"
-do_vulnscout_no_scan[doc] = "Open a new terminal and launch VulnScout web interface in a Docker container without any scan"
-addtask vulnscout_no_scan
+do_vulnscout_export[nostamp] = "1"
+do_vulnscout_export[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_export[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_export[doc] = "Generate export files from VulnScout in a Docker container"
+addtask vulnscout_export
+
+python do_vulnscout_serve() {
+    vulnscout_setup(d)
+    vulnscout_serve(d)
+}
+do_vulnscout_serve[nostamp] = "1"
+do_vulnscout_serve[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_serve[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_serve[doc] = "Open a new terminal and launch the VulnScout web interface on the stored data"
+addtask vulnscout_serve
