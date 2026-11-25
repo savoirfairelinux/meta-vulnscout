@@ -19,7 +19,6 @@ VULNSCOUT_CHECK_REQUIREMENTS ?= "1"
 # Parameters of the AI assessment and review (the AI provider is configured in
 # the VulnScout config file, see the README)
 VULNSCOUT_ASSESS_CVES ?= ""
-VULNSCOUT_ASSESS_FILTER ?= ""
 VULNSCOUT_REVIEW_CVES ?= ""
 VULNSCOUT_REVIEW_ASSESSMENT_IDS ?= ""
 VULNSCOUT_REVIEW_RE_REVIEW ?= "0"
@@ -39,7 +38,7 @@ VULNSCOUT_ENV_VERBOSE_MODE ?= "false"
 VULNSCOUT_ENV_FLASK_RUN_PORT ?= "7275"
 VULNSCOUT_ENV_FLASK_RUN_HOST ?= "0.0.0.0"
 VULNSCOUT_ENV_IGNORE_PARSING_ERRORS ?= 'false'
-VULNSCOUT_MATCH_CONDITION ?= ""
+VULNSCOUT_FILTER ?= ""
 
 # Variable for the Vulnerabilities files
 SPDX_3_PATH = "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.json"
@@ -482,9 +481,9 @@ addtask vulnscout_refresh
 python do_vulnscout_assess() {
     vulnscout_setup(d)
     cves = (d.getVar("VULNSCOUT_ASSESS_CVES") or "").split()
-    condition = d.getVar("VULNSCOUT_ASSESS_FILTER")
+    condition = d.getVar("VULNSCOUT_FILTER")
     if bool(cves) == bool(condition):
-        bb.fatal("vulnscout assess needs exactly one of VULNSCOUT_ASSESS_CVES or VULNSCOUT_ASSESS_FILTER.")
+        bb.fatal("vulnscout assess needs exactly one of VULNSCOUT_ASSESS_CVES or VULNSCOUT_FILTER.")
 
     args = ['--project', d.getVar("VULNSCOUT_PROJECT"), '--ai-assess', '--variant', d.getVar("VULNSCOUT_VARIANT")]
     for cve in cves:
@@ -496,7 +495,7 @@ python do_vulnscout_assess() {
 do_vulnscout_assess[nostamp] = "1"
 do_vulnscout_assess[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
 do_vulnscout_assess[postfuncs] += "do_stop_vulnscout"
-do_vulnscout_assess[doc] = "Assess vulnerabilities with the AI agent. Set VULNSCOUT_ASSESS_CVES or VULNSCOUT_ASSESS_FILTER"
+do_vulnscout_assess[doc] = "Assess vulnerabilities with the AI agent. Set VULNSCOUT_ASSESS_CVES or VULNSCOUT_FILTER"
 addtask vulnscout_assess
 
 python do_vulnscout_review() {
@@ -525,15 +524,15 @@ addtask vulnscout_review
 
 python do_vulnscout_match_condition() {
     vulnscout_setup(d)
-    condition = d.getVar("VULNSCOUT_MATCH_CONDITION")
+    condition = d.getVar("VULNSCOUT_FILTER")
     if not condition:
-        bb.fatal("vulnscout match-condition needs a match condition. Please set VULNSCOUT_MATCH_CONDITION.")
+        bb.fatal("vulnscout match-condition needs a match condition. Please set VULNSCOUT_FILTER.")
     vulnscout_match_condition(d, condition)
 }
 do_vulnscout_match_condition[nostamp] = "1"
 do_vulnscout_match_condition[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
 do_vulnscout_match_condition[postfuncs] += "do_stop_vulnscout"
-do_vulnscout_match_condition[doc] = "Test the stored vulnerabilities against VULNSCOUT_MATCH_CONDITION. Fails if any vulnerability matches"
+do_vulnscout_match_condition[doc] = "Test the stored vulnerabilities against VULNSCOUT_FILTER. Fails if any vulnerability matches"
 addtask vulnscout_match_condition
 
 python do_vulnscout_report() {
