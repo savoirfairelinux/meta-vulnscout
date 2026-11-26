@@ -483,7 +483,7 @@ Here is a recap of all the variable and their impact:
 | `VULNSCOUT_AI_DRY_RUN` | Set to `1` to list the assess and review targets without calling the AI |
 | `VULNSCOUT_CHECK_REQUIREMENTS` | Set to `0` to not require the image SBOM and CVE-Check files in the setup (done by the tasks using stored data) |
 | `VULNSCOUT_IMAGE_VERSION` | Version of the container image to use. If the version set in the variable is not the same as the container image used, recreate the vulnscout container. |
-| `VULNSCOUT_IMAGE` | Name of the container image to use for vulnscout container. |
+| `VULNSCOUT_IMAGE` | Fully qualified name of the container image to use for vulnscout container (Podman refuses short names without a TTY). |
 | `VULNSCOUT_CONTAINER_ENGINE` | Container engine command, `docker` (default) or `podman`. |
 | `VULNSCOUT_ENV_VERBOSE_MODE` | Enable or disable the verbose mode (false by default) |
 | `VULNSCOUT_ENV_FLASK_RUN_PORT` | Port vulnscout used for the Web Interface (7275 by default) |
