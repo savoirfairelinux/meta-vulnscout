@@ -26,6 +26,15 @@ VULNSCOUT_AI_MODEL ?= ""
 VULNSCOUT_AI_TIMEOUT ?= ""
 VULNSCOUT_AI_DRY_RUN ?= "0"
 
+# Host folders attached read-only to the AI context of the image, as
+# alias=path pairs. By default the build directory and the layers. Add other
+# folders with VULNSCOUT_AI_CONTEXT:append = " docs=/path/to/docs", or set it
+# to an empty value to attach nothing. Requires an image with ai-context
+# support (VulnScout v0.26 or later)
+VULNSCOUT_AI_CONTEXT ?= "build=${TOPDIR} layers=${@vulnscout_layers_dir(d)}"
+VULNSCOUT_AI_CONTEXT_HELPER_DIR ?= "${VULNSCOUT_BASE_DIR}/host-helper"
+VULNSCOUT_AI_CONTEXT_SNAPSHOT_MIB ?= "512"
+
 # Repo and version of vulnscout to use
 VULNSCOUT_IMAGE_VERSION ?= "v0.25.1"
 VULNSCOUT_IMAGE ?= "docker.io/sflinux/vulnscout"
@@ -430,6 +439,218 @@ def run_vulnscout_or_fail(d, command, args):
     if exit_code != 0:
         bb.fatal(f"vulnscout {command} failed with exit code {exit_code}.")
 
+# Common parent directory of the layers
+def vulnscout_layers_dir(d):
+    import os
+    layers = [os.path.realpath(layer) for layer in (d.getVar("BBLAYERS") or "").split()]
+    if not layers:
+        return ""
+    common = os.path.commonpath(layers)
+    return common if common != "/" else ""
+
+# Run a command of the container engine and return its output, or None on failure
+def vulnscout_engine_output(d, args, **kwargs):
+    import subprocess
+    result = subprocess.run([container_engine(d)] + args, capture_output=True, text=True, **kwargs)
+    return result.stdout.strip() if result.returncode == 0 else None
+
+# Whether the VulnScout image provides the ai-context command
+def vulnscout_ai_context_supported(d):
+    import subprocess
+    check = subprocess.run([container_engine(d), 'exec', 'vulnscout', 'grep', '-q', 'ai-context-attach',
+                            '/scan/src/entrypoint.sh'], capture_output=True)
+    return check.returncode == 0
+
+# Parse VULNSCOUT_AI_CONTEXT in alias=path pairs, with the existing folders only
+def vulnscout_ai_context_pairs(d):
+    import os
+    pairs = []
+    for entry in (d.getVar("VULNSCOUT_AI_CONTEXT") or "").split():
+        alias, separator, path = entry.partition("=")
+        if not separator or not alias or not path:
+            raise RuntimeError(f"Invalid VULNSCOUT_AI_CONTEXT entry '{entry}': expected alias=path.")
+        if not os.path.isdir(path):
+            bb.warn(f"AI context folder '{alias}' not found, skipping: {path}")
+            continue
+        pairs.append((alias, os.path.realpath(path)))
+    return pairs
+
+# Start the host helper serving the attached folders. It is an unprivileged
+# process run as the current user, listening on a socket of the cache directory
+def vulnscout_ai_context_helper_start(d):
+    import os
+    import shutil
+    import subprocess
+
+    engine = container_engine(d)
+    state_dir = d.getVar("VULNSCOUT_AI_CONTEXT_HELPER_DIR")
+    socket_path = os.path.join(d.getVar("VULNSCOUT_CACHE_DIR"), "host-helper", "helper.sock")
+    pid_file = os.path.join(state_dir, "helper.pid")
+    snapshot_mib = d.getVar("VULNSCOUT_AI_CONTEXT_SNAPSHOT_MIB")
+
+    old_umask = os.umask(0o077)
+    os.makedirs(state_dir, exist_ok=True)
+    os.umask(old_umask)
+    os.chmod(state_dir, 0o700)
+
+    image = f'{d.getVar("VULNSCOUT_IMAGE")}:{d.getVar("VULNSCOUT_IMAGE_VERSION")}'
+    image_id = vulnscout_engine_output(d, ['image', 'inspect', image, '--format', '{{.Id}}'])
+    if not image_id:
+        raise RuntimeError(f"Cannot identify the VulnScout image {image}.")
+    image_id = image_id.replace("sha256:", "")
+
+    script = os.path.join(state_dir, f"host_mount_helper-{image_id}.py")
+    if not os.path.isfile(script):
+        content = subprocess.run([engine, 'run', '--rm', '--entrypoint', 'cat', image_id,
+                                  '/scan/src/helpers/host_mount_helper.py'], capture_output=True)
+        if content.returncode != 0 or not content.stdout:
+            raise RuntimeError(f"Cannot extract the host folder helper from {image}: it needs VulnScout v0.26 or later.")
+        with open(script + ".tmp", "wb") as helper:
+            helper.write(content.stdout)
+        os.replace(script + ".tmp", script)
+
+    # With SELinux, the socket must carry the label of the container
+    label = ""
+    if os.path.exists("/sys/fs/selinux/enforce"):
+        label = vulnscout_engine_output(d, ['inspect', 'vulnscout', '--format', '{{.ProcessLabel}}']) or ""
+    engine_path = shutil.which(engine)
+    identity = f"{os.path.basename(script)}|{label}|{engine_path}|{socket_path}|{snapshot_mib}"
+    identity_file = os.path.join(state_dir, "image.active")
+
+    def helper_pid():
+        try:
+            with open(pid_file) as f:
+                pid = int(f.read().strip())
+            os.kill(pid, 0)
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                return pid if b"host_mount_helper" in f.read() else None
+        except (OSError, ValueError):
+            return None
+
+    def read_identity():
+        try:
+            with open(identity_file) as f:
+                return f.read().strip()
+        except OSError:
+            return ""
+
+    pid = helper_pid()
+    if pid and os.path.exists(socket_path) and read_identity() == identity:
+        return
+    if pid:
+        import signal
+        import time
+        os.kill(pid, signal.SIGTERM)
+        for _ in range(100):
+            if helper_pid() != pid:
+                break
+            time.sleep(0.1)
+
+    command = ['python3', '-I', script, 'serve', '--daemon', '--socket', socket_path,
+               '--state-dir', state_dir, '--pid-file', pid_file, '--engine', engine_path,
+               '--image', image_id, '--snapshot-mib', snapshot_mib,
+               '--log-file', os.path.join(state_dir, "helper.log")]
+    if label:
+        command += ['--socket-label', label]
+    started = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True)
+    if started.returncode != 0:
+        raise RuntimeError(f"The host folder helper did not start: {started.stderr.strip()}")
+
+    import time
+    for _ in range(50):
+        if helper_pid() and os.path.exists(socket_path):
+            break
+        time.sleep(0.1)
+    else:
+        raise RuntimeError(f"The host folder helper did not start, see {state_dir}/helper.log.")
+    with open(identity_file, "w") as f:
+        f.write(identity + "\n")
+
+# Stop the host helper
+def vulnscout_ai_context_helper_stop(d):
+    import os
+    import signal
+    import time
+
+    pid_file = os.path.join(d.getVar("VULNSCOUT_AI_CONTEXT_HELPER_DIR"), "helper.pid")
+    try:
+        with open(pid_file) as f:
+            pid = int(f.read().strip())
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            is_helper = b"host_mount_helper" in f.read()
+    except (OSError, ValueError):
+        bb.plain("The host folder helper is not running.")
+        return
+    if not is_helper:
+        bb.plain("The host folder helper is not running.")
+        return
+    os.kill(pid, signal.SIGTERM)
+    for _ in range(600):
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            break
+        time.sleep(0.1)
+    else:
+        raise RuntimeError("The host folder helper has not stopped.")
+    bb.plain("Host folder helper stopped.")
+
+# Attach the folders of VULNSCOUT_AI_CONTEXT to the AI context of the image.
+# The host approves each folder with a permit file read by the helper
+def vulnscout_ai_context_attach(d):
+    import os
+    import secrets
+    import shutil
+
+    pairs = vulnscout_ai_context_pairs(d)
+    if not pairs:
+        bb.plain("No AI context folder to attach: VULNSCOUT_AI_CONTEXT is empty.")
+        return
+    vulnscout_ai_context_helper_start(d)
+
+    state_dir = d.getVar("VULNSCOUT_AI_CONTEXT_HELPER_DIR")
+    scope_args = vulnscout_scope_args(d)
+    engine = container_engine(d)
+    import subprocess
+    scope = subprocess.run([engine, 'exec', 'vulnscout', '/scan/src/entrypoint.sh'] + scope_args +
+                           ['--ai-context-list', '--variant-id-only'], capture_output=True, text=True)
+    if scope.returncode != 0:
+        raise RuntimeError(f"Cannot resolve the variant of the image, run vulnscout_add first: {scope.stdout.strip()} {scope.stderr.strip()}")
+    variant_id = scope.stdout.strip()
+    try:
+        with open(os.path.join(state_dir, "permit.epoch")) as f:
+            epoch = f.read().strip()
+    except OSError:
+        raise RuntimeError("Cannot verify the running host helper, restart it with vulnscout_ai_context_helper_stop.")
+
+    # The helper only accepts permit.<12 alphanumeric characters>
+    permit = os.path.join(state_dir, "permit." + secrets.token_hex(6))
+    os.mkdir(permit, 0o700)
+    try:
+        for alias, path in pairs:
+            with open(os.path.join(permit, alias), "w") as f:
+                f.write(f"{epoch}\0{variant_id}\0{path}")
+        args = scope_args + ['--ai-context-attach', '--host-permit', os.path.basename(permit)]
+        args += [f"{alias}={path}" for alias, path in pairs]
+        exit_code = run_vulnscout(d, args)
+        if exit_code != 0:
+            raise RuntimeError(f"ai-context attach failed with exit code {exit_code}.")
+    finally:
+        shutil.rmtree(permit, ignore_errors=True)
+
+# Attach the default AI context before a task using the AI agent. This is
+# best effort: the image may not support it or the variant may not exist yet
+def vulnscout_ai_context_auto(d):
+    if not (d.getVar("VULNSCOUT_AI_CONTEXT") or "").strip():
+        return
+    if not vulnscout_ai_context_supported(d):
+        bb.note("The VulnScout image has no ai-context support (v0.26 or later), skipping the AI context.")
+        return
+    try:
+        vulnscout_ai_context_attach(d)
+    except Exception as error:
+        bb.warn(f"Could not attach the AI context folders: {error}")
+
 # Project and variant of the current image
 def vulnscout_scope_args(d):
     return ['--project', d.getVar("VULNSCOUT_PROJECT"), '--variant', d.getVar("VULNSCOUT_VARIANT")]
@@ -544,6 +765,7 @@ addtask vulnscout_refresh
 
 python do_vulnscout_assess() {
     vulnscout_setup(d)
+    vulnscout_ai_context_auto(d)
     cves = (d.getVar("VULNSCOUT_ASSESS_CVES") or "").split()
     condition = d.getVar("VULNSCOUT_FILTER")
     if bool(cves) == bool(condition):
@@ -564,6 +786,7 @@ addtask vulnscout_assess
 
 python do_vulnscout_review() {
     vulnscout_setup(d)
+    vulnscout_ai_context_auto(d)
     cves = (d.getVar("VULNSCOUT_REVIEW_CVES") or "").split()
     assessment_ids = (d.getVar("VULNSCOUT_REVIEW_ASSESSMENT_IDS") or "").split()
     if bool(cves) == bool(assessment_ids):
@@ -637,6 +860,7 @@ addtask vulnscout_export
 
 python do_vulnscout_serve() {
     vulnscout_setup(d)
+    vulnscout_ai_context_auto(d)
     vulnscout_serve(d)
 }
 do_vulnscout_serve[nostamp] = "1"
@@ -644,3 +868,48 @@ do_vulnscout_serve[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') 
 do_vulnscout_serve[postfuncs] += "do_stop_vulnscout"
 do_vulnscout_serve[doc] = "Open a new terminal and launch the VulnScout web interface on the stored data"
 addtask vulnscout_serve
+
+python do_vulnscout_ai_context_attach() {
+    vulnscout_setup(d)
+    if not vulnscout_ai_context_supported(d):
+        bb.fatal("The VulnScout image has no ai-context support, use VulnScout v0.26 or later.")
+    try:
+        vulnscout_ai_context_attach(d)
+    except RuntimeError as error:
+        bb.fatal(str(error))
+}
+do_vulnscout_ai_context_attach[nostamp] = "1"
+do_vulnscout_ai_context_attach[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_ai_context_attach[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_ai_context_attach[doc] = "Attach the host folders of VULNSCOUT_AI_CONTEXT (default: the build directory and the layers) to the AI context, read-only"
+addtask vulnscout_ai_context_attach
+
+python do_vulnscout_ai_context_list() {
+    vulnscout_setup(d)
+    run_vulnscout_or_fail(d, "ai-context list", vulnscout_scope_args(d) + ['--ai-context-list'])
+}
+do_vulnscout_ai_context_list[nostamp] = "1"
+do_vulnscout_ai_context_list[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_ai_context_list[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_ai_context_list[doc] = "List the host folders attached to the AI context and their availability"
+addtask vulnscout_ai_context_list
+
+python do_vulnscout_ai_context_detach() {
+    vulnscout_setup(d)
+    aliases = [entry.partition("=")[0] for entry in (d.getVar("VULNSCOUT_AI_CONTEXT") or "").split()]
+    if not aliases:
+        bb.fatal("vulnscout ai-context detach needs the aliases to detach. Please set VULNSCOUT_AI_CONTEXT.")
+    run_vulnscout_or_fail(d, "ai-context detach", vulnscout_scope_args(d) + ['--ai-context-detach'] + aliases)
+}
+do_vulnscout_ai_context_detach[nostamp] = "1"
+do_vulnscout_ai_context_detach[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_ai_context_detach[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_ai_context_detach[doc] = "Detach the folders of VULNSCOUT_AI_CONTEXT from the AI context"
+addtask vulnscout_ai_context_detach
+
+python do_vulnscout_ai_context_helper_stop() {
+    vulnscout_ai_context_helper_stop(d)
+}
+do_vulnscout_ai_context_helper_stop[nostamp] = "1"
+do_vulnscout_ai_context_helper_stop[doc] = "Stop the host helper serving the AI context folders"
+addtask vulnscout_ai_context_helper_stop
