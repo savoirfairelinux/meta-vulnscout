@@ -33,6 +33,7 @@ VULNSCOUT_IMAGE ?= "docker.io/sflinux/vulnscout"
 # Container engine command: "docker" or "podman"
 VULNSCOUT_CONTAINER_ENGINE ?= "docker"
 VULNSCOUT_SERVE_FOREGROUND ?= "0"
+VULNSCOUT_BIND_ADDRESS ?= "127.0.0.1"
 
 # Variables for the vulnscout configuration
 VULNSCOUT_ENV_VERBOSE_MODE ?= "false"
@@ -178,9 +179,15 @@ EOF
             if $rootless_podman; then
                 userns_args="--userns=keep-id:uid=0,gid=0 --user=0:0 -e VULNSCOUT_ROOTLESS_PODMAN=true"
             fi
+            # The AI agent chat is only enabled for a port published on the
+            # loopback address, which the marker tmpfs tells to the container
+            publish_args="-p ${VULNSCOUT_BIND_ADDRESS}:7275:7275"
+            case "${VULNSCOUT_BIND_ADDRESS}" in
+                127.*) publish_args="$publish_args --tmpfs /run/vulnscout-loopback-published:ro,size=4k" ;;
+            esac
             ${VULNSCOUT_CONTAINER_ENGINE} run -d --name vulnscout \
                 $userns_args \
-                -p 7275:7275 \
+                $publish_args \
                 --env-file "${VULNSCOUT_CONFIG_FILE}" \
                 -v "${VULNSCOUT_CACHE_DIR}":/cache/vulnscout \
                 -v "${VULNSCOUT_DEPLOY_DIR}":/scan/outputs \

@@ -436,6 +436,7 @@ Here is a recap of all the variable and their impact:
 | `VULNSCOUT_IMAGE` | Fully qualified name of the container image to use for vulnscout container (Podman refuses short names without a TTY). |
 | `VULNSCOUT_CONTAINER_ENGINE` | Container engine command, `docker` (default) or `podman`. |
 | `VULNSCOUT_SERVE_FOREGROUND` | Set to `1` to run `vulnscout_serve` in the BitBake console (Ctrl-C to stop) instead of opening a new terminal. Automatic when no graphical session, tmux or screen is detected. Default `0`. |
+| `VULNSCOUT_BIND_ADDRESS` | Host address the VulnScout port is published on. Default `127.0.0.1`, which is required for the AI agent chat; use `0.0.0.0` to expose the interface on the network (agent chat disabled). |
 | `VULNSCOUT_ENV_VERBOSE_MODE` | Enable or disable the verbose mode (false by default) |
 | `VULNSCOUT_ENV_FLASK_RUN_PORT` | Port vulnscout used for the Web Interface (7275 by default) |
 | `VULNSCOUT_ENV_FLASK_RUN_HOST` | IP used on the host for the Web Interface (0.0.0.0 by default) |
