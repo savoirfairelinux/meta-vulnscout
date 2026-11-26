@@ -286,7 +286,13 @@ def container_engine(d):
     # Use host binaries first: the native sysroot ships a non-setuid
     # newuidmap that breaks rootless podman
     os.environ["PATH"] = "/usr/bin:/usr/sbin:" + os.environ.get("PATH", "")
-    return d.getVar("VULNSCOUT_CONTAINER_ENGINE")
+    engine = d.getVar("VULNSCOUT_CONTAINER_ENGINE")
+    if engine == "podman":
+        # BitBake sets a temporary HOME, but Podman keeps its containers
+        # and images under the real one
+        import pwd
+        os.environ["HOME"] = pwd.getpwuid(os.getuid()).pw_dir
+    return engine
 
 # Helper function to find files in a directory and its subdirectories based on a pattern
 def find_all(name, path):
