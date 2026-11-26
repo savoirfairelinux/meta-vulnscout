@@ -163,7 +163,7 @@ EOF
 
     counter=0
     while [ $counter -lt 5 ]; do
-        containers=$(${VULNSCOUT_CONTAINER_ENGINE} ps -a --filter 'name=vulnscout' --format '{{.ID}}')
+        containers=$(${VULNSCOUT_CONTAINER_ENGINE} ps -a --filter 'name=^vulnscout$' --format '{{.ID}}')
         if [ -z "$containers" ]; then
             docker_check_image=$(${VULNSCOUT_CONTAINER_ENGINE} images -q "${VULNSCOUT_IMAGE}:${VULNSCOUT_IMAGE_VERSION}")
             if [ -z "$docker_check_image" ]; then
