@@ -16,7 +16,6 @@ affecting it.
    assess
    enforce
    share
-   cve-check-improvements
    nvd-download
    docker-web-interface
    variables

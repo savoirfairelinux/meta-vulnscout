@@ -270,25 +270,26 @@ def copy_sbom_files_to_container(d):
 
     # Retrieve paths for SPDX and CVE-Check files
     spdx_3_path = d.getVar("SPDX_3_PATH")
-    spdx_2_path = d.getVar("SPDX_2_PATH")
     cve_check_path = d.getVar("CVE_CHECK_PATH")
     scouted_cve_check_path = d.getVar("SCOUTED_CVE_CHECK_PATH")
+    sbom_cve_check_spdx3_path = d.getVar("SBOM_CVE_CHECK_SPDX3_PATH")
 
-    # Determine which SPDX file to use based on INHERIT
-    if bb.data.inherits_class("create-spdx-3.0", d):
-        spdx_used_path = spdx_3_path
+    # Determine which SPDX file to use based on the inherited class
+    if bb.data.inherits_class("sbom-cve-check", d):
+        spdx_used_path = sbom_cve_check_spdx3_path
     else:
-        spdx_used_path = spdx_2_path
+        spdx_used_path = spdx_3_path
 
     spdx_real_path = os.path.realpath(spdx_used_path)
 
-    # Determine which CVE-Check file to use
-    if os.path.exists(scouted_cve_check_path):
-        cve_check_used_path = scouted_cve_check_path
-    else:
-        cve_check_used_path = cve_check_path
-
-    cve_check_real_path = os.path.realpath(cve_check_used_path)
+    # Determine which CVE-Check file to use, if any
+    cve_check_real_path = None
+    if bb.data.inherits_class("cve-check", d):
+        if d.getVarFlag('do_image_improve_kernel_cve_report', 'task'):
+            cve_check_used_path = scouted_cve_check_path
+        else:
+            cve_check_used_path = cve_check_path
+        cve_check_real_path = os.path.realpath(cve_check_used_path)
 
     # Copy the SPDX into the container
     subprocess.run([engine, 'cp', spdx_real_path, 'vulnscout:/tmp/'], check=True)
@@ -296,7 +297,7 @@ def copy_sbom_files_to_container(d):
 
     # Copy the CVE-Check into the container if it exists
     cve_check_in_container = None
-    if os.path.exists(cve_check_real_path):
+    if cve_check_real_path and os.path.exists(cve_check_real_path):
         subprocess.run([engine, 'cp', cve_check_real_path, 'vulnscout:/tmp/'], check=True)
         cve_check_in_container = f"/tmp/{os.path.basename(cve_check_real_path)}"
 
