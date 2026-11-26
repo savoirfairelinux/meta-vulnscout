@@ -44,6 +44,10 @@ Each `vulnscout` CLI command has a matching BitBake task named
 | `vulnscout serve` | `-c vulnscout_serve` | Start the web interface |
 | `vulnscout assess` | `-c vulnscout_assess` | Assess vulnerabilities with the AI agent |
 | `vulnscout review` | `-c vulnscout_review` | Review custom assessments with the AI agent |
+| `vulnscout ai-context attach` | `-c vulnscout_ai_context_attach` | Attach host folders to the AI context, read-only |
+| `vulnscout ai-context list` | `-c vulnscout_ai_context_list` | List the attached folders and their availability |
+| `vulnscout ai-context detach` | `-c vulnscout_ai_context_detach` | Detach the folders of `VULNSCOUT_AI_CONTEXT` |
+| `vulnscout ai-context helper stop` | `-c vulnscout_ai_context_helper_stop` | Stop the host helper serving the folders |
 | `vulnscout match-condition` | `-c vulnscout_match_condition` | Fail if a stored vulnerability matches `VULNSCOUT_FILTER` |
 | `vulnscout report` | `-c vulnscout_report` | Generate reports |
 | `vulnscout export` | `-c vulnscout_export` | Export SBOMs |
@@ -216,6 +220,33 @@ BB_ENV_PASSTHROUGH_ADDITIONS+=" VULNSCOUT_FILTER VULNSCOUT_AI_DRY_RUN" \
 VULNSCOUT_FILTER="pending and cvss >= 9" VULNSCOUT_AI_DRY_RUN=1 \
 bitbake core-image-minimal -c vulnscout_assess
 ```
+
+### Attach Host Folders to the AI Context
+
+The AI agent can browse, read and search host folders, read-only and without
+copying them. By default the build directory (`build`) and the layers
+(`layers`, the common parent of the layers in `BBLAYERS`) are attached to the
+image, before `vulnscout_serve`, `vulnscout_assess` and `vulnscout_review`.
+The agent refers to them with the file IDs `mount:build` and `mount:layers`.
+
+`VULNSCOUT_AI_CONTEXT` lists the `alias=path` pairs. Aliases are 1 to 32
+lowercase letters, digits, `_` or `-`. Add other folders, or set an empty value
+to attach nothing:
+
+```sh
+VULNSCOUT_AI_CONTEXT:append = " docs=/path/to/docs"
+```
+
+The attached folders are served by a helper that runs on the host as your user,
+and only the folders listed in `VULNSCOUT_AI_CONTEXT` are approved. Hidden and
+sensitive folders cannot be attached. The helper keeps running after the tasks
+and is stopped with `-c vulnscout_ai_context_helper_stop`. The tasks
+`vulnscout_ai_context_attach`, `vulnscout_ai_context_list` and
+`vulnscout_ai_context_detach` manage the folders explicitly; the image must
+have been added with `vulnscout_add` first.
+
+This needs a VulnScout image with the `ai-context` command (v0.26 or later);
+with an older image the folders are skipped.
 
 <!-- doc-section:enforce -->
 
@@ -431,6 +462,9 @@ Here is a recap of all the variable and their impact:
 | `VULNSCOUT_AI_MODEL` | Model used by assess and review instead of `AI_MODEL` |
 | `VULNSCOUT_AI_TIMEOUT` | Limit in seconds for each agent turn of assess and review (600 by default) |
 | `VULNSCOUT_AI_DRY_RUN` | Set to `1` to list the assess and review targets without calling the AI |
+| `VULNSCOUT_AI_CONTEXT` | `alias=path` host folders attached read-only to the AI context. Default: the build directory and the layers. Empty to attach nothing |
+| `VULNSCOUT_AI_CONTEXT_HELPER_DIR` | State directory of the host helper (default `${VULNSCOUT_BASE_DIR}/host-helper`) |
+| `VULNSCOUT_AI_CONTEXT_SNAPSHOT_MIB` | Maximum size in MiB of the snapshots of the helper (default `512`) |
 | `VULNSCOUT_CHECK_REQUIREMENTS` | Set to `0` to not require the image SBOM and CVE-Check files in the setup (done by the tasks using stored data) |
 | `VULNSCOUT_IMAGE_VERSION` | Version of the container image to use. If the version set in the variable is not the same as the container image used, recreate the vulnscout container. |
 | `VULNSCOUT_IMAGE` | Fully qualified name of the container image to use for vulnscout container (Podman refuses short names without a TTY). |
