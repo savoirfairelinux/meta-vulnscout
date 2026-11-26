@@ -32,6 +32,7 @@ VULNSCOUT_IMAGE ?= "docker.io/sflinux/vulnscout"
 
 # Container engine command: "docker" or "podman"
 VULNSCOUT_CONTAINER_ENGINE ?= "docker"
+VULNSCOUT_SERVE_FOREGROUND ?= "0"
 
 # Variables for the vulnscout configuration
 VULNSCOUT_ENV_VERBOSE_MODE ?= "false"
@@ -429,11 +430,21 @@ def vulnscout_add(d):
 
 # Open the VulnScout web interface in a new terminal
 def vulnscout_serve(d):
+    import os
+    import subprocess
     engine = container_engine(d)
     port = int(d.getVar("VULNSCOUT_ENV_FLASK_RUN_PORT"))
 
     # Warn if Flask is already serving inside the container
     check_vulnscout_port(d, port)
+
+    # Without a graphical session, tmux or screen, no terminal can be opened:
+    # serve in the BitBake task itself until interrupted with Ctrl-C
+    no_terminal = not any(os.environ.get(v) for v in ("DISPLAY", "WAYLAND_DISPLAY", "TMUX", "STY"))
+    if d.getVar("VULNSCOUT_SERVE_FOREGROUND") == "1" or no_terminal:
+        bb.plain(f"Serving VulnScout on http://localhost:{port} (Ctrl-C to stop)...")
+        subprocess.run([engine, "exec", "vulnscout", "/scan/src/entrypoint.sh", "--serve"], check=False)
+        return
 
     cmd = f"{engine} exec vulnscout /scan/src/entrypoint.sh --serve ; echo; echo Container exited. Press any key to close...; read x"
     oe_terminal(cmd, "Vulnscout Container Logs", d)

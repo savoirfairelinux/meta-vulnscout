@@ -435,6 +435,7 @@ Here is a recap of all the variable and their impact:
 | `VULNSCOUT_IMAGE_VERSION` | Version of the container image to use. If the version set in the variable is not the same as the container image used, recreate the vulnscout container. |
 | `VULNSCOUT_IMAGE` | Fully qualified name of the container image to use for vulnscout container (Podman refuses short names without a TTY). |
 | `VULNSCOUT_CONTAINER_ENGINE` | Container engine command, `docker` (default) or `podman`. |
+| `VULNSCOUT_SERVE_FOREGROUND` | Set to `1` to run `vulnscout_serve` in the BitBake console (Ctrl-C to stop) instead of opening a new terminal. Automatic when no graphical session, tmux or screen is detected. Default `0`. |
 | `VULNSCOUT_ENV_VERBOSE_MODE` | Enable or disable the verbose mode (false by default) |
 | `VULNSCOUT_ENV_FLASK_RUN_PORT` | Port vulnscout used for the Web Interface (7275 by default) |
 | `VULNSCOUT_ENV_FLASK_RUN_HOST` | IP used on the host for the Web Interface (0.0.0.0 by default) |
