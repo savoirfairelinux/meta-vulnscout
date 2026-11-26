@@ -221,6 +221,8 @@ EOF
 
 }
 do_setup_vulnscout[nostamp] = "1"
+# All images share the single "vulnscout" container, so serialize the tasks
+do_setup_vulnscout[lockfiles] = "${TMPDIR}/vulnscout-container.lock"
 # Podman needs network access (rootless userns and image pull); BitBake
 # isolates tasks otherwise. Docker talks to its daemon and does not.
 do_setup_vulnscout[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
@@ -237,6 +239,7 @@ do_stop_vulnscout() {
     fi
 }
 do_stop_vulnscout[nostamp] = "1"
+do_stop_vulnscout[lockfiles] = "${TMPDIR}/vulnscout-container.lock"
 do_stop_vulnscout[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
 do_stop_vulnscout[doc] = "Stop the VulnScout Docker container after a normal build"
 addtask stop_vulnscout after do_setup_vulnscout before do_build
