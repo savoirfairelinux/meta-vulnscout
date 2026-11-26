@@ -28,7 +28,7 @@ VULNSCOUT_AI_DRY_RUN ?= "0"
 
 # Repo and version of vulnscout to use
 VULNSCOUT_IMAGE_VERSION ?= "v0.25.1"
-VULNSCOUT_IMAGE ?= "sflinux/vulnscout"
+VULNSCOUT_IMAGE ?= "docker.io/sflinux/vulnscout"
 
 # Container engine command: "docker" or "podman"
 VULNSCOUT_CONTAINER_ENGINE ?= "docker"
