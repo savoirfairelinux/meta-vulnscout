@@ -97,6 +97,11 @@ EOF
     # Prefer host binaries: the native sysroot ships a non-setuid newuidmap
     # that breaks rootless podman
     export PATH="/usr/bin:/usr/sbin:$PATH"
+    # BitBake sets a temporary HOME; Podman stores its images under the real one
+    if [ "${VULNSCOUT_CONTAINER_ENGINE}" = "podman" ]; then
+        real_home=$(getent passwd "$(id -u)" | cut -d: -f6)
+        [ -n "$real_home" ] && export HOME="$real_home"
+    fi
 
     # Rootless podman: older containers chowned the cache to a subordinate
     # UID. Give it back to the host user so the config can be edited.
@@ -255,6 +260,11 @@ do_setup_vulnscout[doc] = "Configure the env file and create a new container"
 
 do_stop_vulnscout() {
     export PATH="/usr/bin:/usr/sbin:$PATH"
+    # BitBake sets a temporary HOME; Podman stores its images under the real one
+    if [ "${VULNSCOUT_CONTAINER_ENGINE}" = "podman" ]; then
+        real_home=$(getent passwd "$(id -u)" | cut -d: -f6)
+        [ -n "$real_home" ] && export HOME="$real_home"
+    fi
     docker_status=$(${VULNSCOUT_CONTAINER_ENGINE} inspect vulnscout --format '{{.State.Status}}' 2>/dev/null || true)
     if [ "$docker_status" = "running" ]; then
         bbplain "Stopping Vulnscout container..."
