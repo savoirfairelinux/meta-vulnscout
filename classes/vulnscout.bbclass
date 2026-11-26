@@ -96,6 +96,24 @@ cache/
 EOF
     fi
 
+    # Prefer host binaries: the native sysroot ships a non-setuid newuidmap
+    # that breaks rootless podman
+    export PATH="/usr/bin:/usr/sbin:$PATH"
+
+    # Rootless podman: older containers chowned the cache to a subordinate
+    # UID. Give it back to the host user so the config can be edited.
+    rootless_podman=false
+    if [ "${VULNSCOUT_CONTAINER_ENGINE}" = "podman" ] && \
+       [ "$(podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null)" = "true" ]; then
+        rootless_podman=true
+        if [ -d "${VULNSCOUT_CACHE_DIR}" ] && \
+           { [ ! -w "${VULNSCOUT_CACHE_DIR}" ] || { [ -e "${VULNSCOUT_CONFIG_FILE}" ] && [ ! -r "${VULNSCOUT_CONFIG_FILE}" ]; }; }; then
+            bbplain "Restoring host ownership of ${VULNSCOUT_CACHE_DIR}..."
+            podman unshare chown -R 0:0 "${VULNSCOUT_CACHE_DIR}" || \
+                bbfatal "Error: cannot restore host ownership of ${VULNSCOUT_CACHE_DIR}."
+        fi
+    fi
+
     #  Populate the config file
     if [ ! -f "${VULNSCOUT_CONFIG_FILE}" ]; then
     mkdir -p "${VULNSCOUT_CACHE_DIR}"
@@ -126,10 +144,6 @@ EOF
 
     fi
 
-    # Prefer host binaries: the native sysroot ships a non-setuid newuidmap
-    # that breaks rootless podman
-    export PATH="/usr/bin:/usr/sbin:$PATH"
-
     if ! command -v ${VULNSCOUT_CONTAINER_ENGINE} >/dev/null 2>&1; then
         bbfatal "Error: '${VULNSCOUT_CONTAINER_ENGINE}' was not found. Install Docker or Podman, or set VULNSCOUT_CONTAINER_ENGINE to the right command."
     fi
@@ -154,7 +168,14 @@ EOF
                 fi
             fi
             bbplain "No vulnscout container running, creating..."
+            # Rootless podman: container root must be the host user, or the
+            # files written in the cache belong to an unusable subordinate UID
+            userns_args=""
+            if $rootless_podman; then
+                userns_args="--userns=keep-id:uid=0,gid=0 --user=0:0 -e VULNSCOUT_ROOTLESS_PODMAN=true"
+            fi
             ${VULNSCOUT_CONTAINER_ENGINE} run -d --name vulnscout \
+                $userns_args \
                 -p 7275:7275 \
                 --env-file "${VULNSCOUT_CONFIG_FILE}" \
                 -v "${VULNSCOUT_CACHE_DIR}":/cache/vulnscout \
@@ -175,7 +196,11 @@ EOF
             mounted_cache=$(${VULNSCOUT_CONTAINER_ENGINE} inspect vulnscout --format '{{range .Mounts}}{{if eq .Destination "/cache/vulnscout"}}{{.Source}}{{end}}{{end}}')
             mounted_outputs=$(${VULNSCOUT_CONTAINER_ENGINE} inspect vulnscout --format '{{range .Mounts}}{{if eq .Destination "/scan/outputs"}}{{.Source}}{{end}}{{end}}')
             mounted_config=$(${VULNSCOUT_CONTAINER_ENGINE} inspect vulnscout --format '{{range .Mounts}}{{if eq .Destination "/etc/vulnscout/config.env"}}{{.Source}}{{end}}{{end}}')
-            if [ "$mounted_cache" != "${VULNSCOUT_CACHE_DIR}" ] || \
+            stale_userns=false
+            if $rootless_podman && ! podman inspect vulnscout --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -q '^VULNSCOUT_ROOTLESS_PODMAN=true$'; then
+                stale_userns=true
+            fi
+            if $stale_userns || [ "$mounted_cache" != "${VULNSCOUT_CACHE_DIR}" ] || \
                [ "$mounted_outputs" != "${VULNSCOUT_DEPLOY_DIR}" ] || \
                [ "$mounted_config" != "${VULNSCOUT_CONFIG_FILE}" ]; then
                 bbplain "The existing vulnscout container uses data from another build; recreating it with the current VulnScout directories..."
