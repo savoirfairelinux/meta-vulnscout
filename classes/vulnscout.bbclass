@@ -11,18 +11,45 @@ VULNSCOUT_VARIANT ?= "${DISTRO}_${MACHINE}_${IMAGE_BASENAME}"
 VULNSCOUT_PROJECT ?= "default"
 VULNSCOUT_EXPORT ?= "cdx openvex spdx"
 VULNSCOUT_REPORT ?= "summary.adoc"
-VULNSCOUT_REPORT_CI ?= "match_condition.adoc"
+VULNSCOUT_SCANNERS ?= "all"
+
+# Set to 0 to not require the image SBOM and CVE-Check files in the setup
+VULNSCOUT_CHECK_REQUIREMENTS ?= "1"
+
+# Parameters of the AI assessment and review (the AI provider is configured in
+# the VulnScout config file, see the README)
+VULNSCOUT_ASSESS_CVES ?= ""
+VULNSCOUT_REVIEW_CVES ?= ""
+VULNSCOUT_REVIEW_ASSESSMENT_IDS ?= ""
+VULNSCOUT_REVIEW_RE_REVIEW ?= "0"
+VULNSCOUT_AI_MODEL ?= ""
+VULNSCOUT_AI_TIMEOUT ?= ""
+VULNSCOUT_AI_DRY_RUN ?= "0"
+
+# Host folders attached read-only to the AI context of the image, as
+# alias=path pairs. By default the build directory and the layers. Add other
+# folders with VULNSCOUT_AI_CONTEXT:append = " docs=/path/to/docs", or set it
+# to an empty value to attach nothing. Requires an image with ai-context
+# support (VulnScout v0.26 or later)
+VULNSCOUT_AI_CONTEXT ?= "build=${TOPDIR} layers=${@vulnscout_layers_dir(d)}"
+VULNSCOUT_AI_CONTEXT_HELPER_DIR ?= "${VULNSCOUT_BASE_DIR}/host-helper"
+VULNSCOUT_AI_CONTEXT_SNAPSHOT_MIB ?= "512"
 
 # Repo and version of vulnscout to use
-VULNSCOUT_IMAGE_VERSION ?= "v0.24"
-VULNSCOUT_IMAGE ?= "sflinux/vulnscout"
+VULNSCOUT_IMAGE_VERSION ?= "v0.26"
+VULNSCOUT_IMAGE ?= "docker.io/sflinux/vulnscout"
+
+# Container engine command: "docker" or "podman"
+VULNSCOUT_CONTAINER_ENGINE ?= "docker"
+VULNSCOUT_SERVE_FOREGROUND ?= "0"
+VULNSCOUT_BIND_ADDRESS ?= "127.0.0.1"
 
 # Variables for the vulnscout configuration
 VULNSCOUT_ENV_VERBOSE_MODE ?= "false"
 VULNSCOUT_ENV_FLASK_RUN_PORT ?= "7275"
 VULNSCOUT_ENV_FLASK_RUN_HOST ?= "0.0.0.0"
 VULNSCOUT_ENV_IGNORE_PARSING_ERRORS ?= 'false'
-VULNSCOUT_MATCH_CONDITION ?= ""
+VULNSCOUT_FILTER ?= ""
 
 # Variable for the Vulnerabilities files
 SPDX_3_PATH = "${DEPLOY_DIR_IMAGE}/${IMAGE_LINK_NAME}.spdx.json"
@@ -67,7 +94,9 @@ check_vulnscout_requirements() {
 }
 
 do_setup_vulnscout() {
-    check_vulnscout_requirements
+    if [ "${VULNSCOUT_CHECK_REQUIREMENTS}" = "1" ]; then
+        check_vulnscout_requirements
+    fi
 
     # Create an output directory for vulnscout configuration
     mkdir -p ${VULNSCOUT_DEPLOY_DIR}
@@ -76,6 +105,29 @@ do_setup_vulnscout() {
         cat > "${VULNSCOUT_BASE_DIR}/.gitignore" <<EOF
 cache/
 EOF
+    fi
+
+    # Prefer host binaries: the native sysroot ships a non-setuid newuidmap
+    # that breaks rootless podman
+    export PATH="/usr/bin:/usr/sbin:$PATH"
+    # BitBake sets a temporary HOME; Podman stores its images under the real one
+    if [ "${VULNSCOUT_CONTAINER_ENGINE}" = "podman" ]; then
+        real_home=$(getent passwd "$(id -u)" | cut -d: -f6)
+        [ -n "$real_home" ] && export HOME="$real_home"
+    fi
+
+    # Rootless podman: older containers chowned the cache to a subordinate
+    # UID. Give it back to the host user so the config can be edited.
+    rootless_podman=false
+    if [ "${VULNSCOUT_CONTAINER_ENGINE}" = "podman" ] && \
+       [ "$(podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null)" = "true" ]; then
+        rootless_podman=true
+        if [ -d "${VULNSCOUT_CACHE_DIR}" ] && \
+           { [ ! -w "${VULNSCOUT_CACHE_DIR}" ] || { [ -e "${VULNSCOUT_CONFIG_FILE}" ] && [ ! -r "${VULNSCOUT_CONFIG_FILE}" ]; }; }; then
+            bbplain "Restoring host ownership of ${VULNSCOUT_CACHE_DIR}..."
+            podman unshare chown -R 0:0 "${VULNSCOUT_CACHE_DIR}" || \
+                bbfatal "Error: cannot restore host ownership of ${VULNSCOUT_CACHE_DIR}."
+        fi
     fi
 
     #  Populate the config file
@@ -108,20 +160,45 @@ EOF
 
     fi
 
+    if ! command -v ${VULNSCOUT_CONTAINER_ENGINE} >/dev/null 2>&1; then
+        bbfatal "Error: '${VULNSCOUT_CONTAINER_ENGINE}' was not found. Install Docker or Podman, or set VULNSCOUT_CONTAINER_ENGINE to the right command."
+    fi
+    engine_err=$(${VULNSCOUT_CONTAINER_ENGINE} info 2>&1 >/dev/null) || {
+        case "$engine_err" in
+            *"permission denied"*)
+                bbfatal "Error: permission denied while connecting to '${VULNSCOUT_CONTAINER_ENGINE}'. For Docker, add your user to the 'docker' group (sudo usermod -aG docker \$USER, then re-login). Details: $engine_err" ;;
+            *)
+                bbfatal "Error: '${VULNSCOUT_CONTAINER_ENGINE}' is not usable. Is the daemon/socket running? Details: $engine_err" ;;
+        esac
+    }
+
     counter=0
     while [ $counter -lt 5 ]; do
-        containers=$(docker ps -a --filter 'name=vulnscout' --format '{{.ID}}')
+        containers=$(${VULNSCOUT_CONTAINER_ENGINE} ps -a --filter 'name=^vulnscout$' --format '{{.ID}}')
         if [ -z "$containers" ]; then
-            docker_check_image=$(docker images -q "${VULNSCOUT_IMAGE}:${VULNSCOUT_IMAGE_VERSION}")
+            docker_check_image=$(${VULNSCOUT_CONTAINER_ENGINE} images -q "${VULNSCOUT_IMAGE}:${VULNSCOUT_IMAGE_VERSION}")
             if [ -z "$docker_check_image" ]; then
                 bbplain "Pulling vulnscout image ${VULNSCOUT_IMAGE}:${VULNSCOUT_IMAGE_VERSION} from DockerHub..."
-                if ! docker pull "${VULNSCOUT_IMAGE}:${VULNSCOUT_IMAGE_VERSION}"; then
+                if ! ${VULNSCOUT_CONTAINER_ENGINE} pull "${VULNSCOUT_IMAGE}:${VULNSCOUT_IMAGE_VERSION}"; then
                     bbfatal "Error: failed to pull the vulnscout image. Please check your Docker setup."
                 fi
             fi
             bbplain "No vulnscout container running, creating..."
-            docker run -d --name vulnscout \
-                -p 7275:7275 \
+            # Rootless podman: container root must be the host user, or the
+            # files written in the cache belong to an unusable subordinate UID
+            userns_args=""
+            if $rootless_podman; then
+                userns_args="--userns=keep-id:uid=0,gid=0 --user=0:0 -e VULNSCOUT_ROOTLESS_PODMAN=true"
+            fi
+            # The AI agent chat is only enabled for a port published on the
+            # loopback address, which the marker tmpfs tells to the container
+            publish_args="-p ${VULNSCOUT_BIND_ADDRESS}:7275:7275"
+            case "${VULNSCOUT_BIND_ADDRESS}" in
+                127.*) publish_args="$publish_args --tmpfs /run/vulnscout-loopback-published:ro,size=4k" ;;
+            esac
+            ${VULNSCOUT_CONTAINER_ENGINE} run -d --name vulnscout \
+                $userns_args \
+                $publish_args \
                 --env-file "${VULNSCOUT_CONFIG_FILE}" \
                 -v "${VULNSCOUT_CACHE_DIR}":/cache/vulnscout \
                 -v "${VULNSCOUT_DEPLOY_DIR}":/scan/outputs \
@@ -129,50 +206,54 @@ EOF
                 "${VULNSCOUT_IMAGE}:${VULNSCOUT_IMAGE_VERSION}" daemon
             # Wait for the container process to be ready to accept exec calls
             retries=15
-            until docker exec vulnscout true 2>/dev/null; do
+            until ${VULNSCOUT_CONTAINER_ENGINE} exec vulnscout true 2>/dev/null; do
                 retries=$(expr "$retries" - 1) || true
                 if [ "$retries" -le 0 ]; then
-                    bbfatal "Error: container failed to start. Check 'docker logs vulnscout'."
+                    bbfatal "Error: container failed to start. Check '${VULNSCOUT_CONTAINER_ENGINE} logs vulnscout'."
                 fi
                 sleep 1
             done
             break
         else
-            mounted_cache=$(docker inspect vulnscout --format '{{range .Mounts}}{{if eq .Destination "/cache/vulnscout"}}{{.Source}}{{end}}{{end}}')
-            mounted_outputs=$(docker inspect vulnscout --format '{{range .Mounts}}{{if eq .Destination "/scan/outputs"}}{{.Source}}{{end}}{{end}}')
-            mounted_config=$(docker inspect vulnscout --format '{{range .Mounts}}{{if eq .Destination "/etc/vulnscout/config.env"}}{{.Source}}{{end}}{{end}}')
-            if [ "$mounted_cache" != "${VULNSCOUT_CACHE_DIR}" ] || \
+            mounted_cache=$(${VULNSCOUT_CONTAINER_ENGINE} inspect vulnscout --format '{{range .Mounts}}{{if eq .Destination "/cache/vulnscout"}}{{.Source}}{{end}}{{end}}')
+            mounted_outputs=$(${VULNSCOUT_CONTAINER_ENGINE} inspect vulnscout --format '{{range .Mounts}}{{if eq .Destination "/scan/outputs"}}{{.Source}}{{end}}{{end}}')
+            mounted_config=$(${VULNSCOUT_CONTAINER_ENGINE} inspect vulnscout --format '{{range .Mounts}}{{if eq .Destination "/etc/vulnscout/config.env"}}{{.Source}}{{end}}{{end}}')
+            stale_userns=false
+            if $rootless_podman && ! podman inspect vulnscout --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -q '^VULNSCOUT_ROOTLESS_PODMAN=true$'; then
+                stale_userns=true
+            fi
+            if $stale_userns || [ "$mounted_cache" != "${VULNSCOUT_CACHE_DIR}" ] || \
                [ "$mounted_outputs" != "${VULNSCOUT_DEPLOY_DIR}" ] || \
                [ "$mounted_config" != "${VULNSCOUT_CONFIG_FILE}" ]; then
                 bbplain "The existing vulnscout container uses data from another build; recreating it with the current VulnScout directories..."
                 counter=$(expr "$counter" + 1)
-                if ! docker rm -f "$containers"; then
+                if ! ${VULNSCOUT_CONTAINER_ENGINE} rm -f "$containers"; then
                     bbfatal "Error: failed to replace the vulnscout container with the current build configuration."
                 fi
                 continue
             fi
 
             # Check if the container is running, if not start it
-            docker_status=$(docker inspect vulnscout --format '{{.State.Status}}')
+            docker_status=$(${VULNSCOUT_CONTAINER_ENGINE} inspect vulnscout --format '{{.State.Status}}')
             if [ "$docker_status" != "running" ]; then
                 bbplain "Vulnscout container exists but is not running, starting..."
-                docker start vulnscout
+                ${VULNSCOUT_CONTAINER_ENGINE} start vulnscout
                 # Wait for the container process to be ready to accept exec calls
                 retries=15
-                until docker exec vulnscout true 2>/dev/null; do
+                until ${VULNSCOUT_CONTAINER_ENGINE} exec vulnscout true 2>/dev/null; do
                     retries=$(expr "$retries" - 1) || true
                     if [ "$retries" -le 0 ]; then
-                        bbfatal "Error: container failed to start. Check 'docker logs vulnscout'."
+                        bbfatal "Error: container failed to start. Check '${VULNSCOUT_CONTAINER_ENGINE} logs vulnscout'."
                     fi
                     sleep 1
                 done
                 break
             fi
-            docker_version=$(docker exec vulnscout /scan/src/entrypoint.sh --version)
+            docker_version=$(${VULNSCOUT_CONTAINER_ENGINE} exec vulnscout /scan/src/entrypoint.sh --version)
             if [ "$docker_version" != "${VULNSCOUT_IMAGE_VERSION}" ]; then
                 bbplain "A vulnscout container is already running but with an outdated version ($docker_version). Removing it and creating a new one with version ${VULNSCOUT_IMAGE_VERSION}..."
                 counter=$(expr "$counter" + 1)
-                if ! docker rm -f "$containers"; then
+                if ! ${VULNSCOUT_CONTAINER_ENGINE} rm -f "$containers"; then
                     bbfatal "Error: failed to remove existing container with outdated version. Please remove the container named 'vulnscout' and try again."
                 fi
             else
@@ -189,20 +270,47 @@ EOF
 
 }
 do_setup_vulnscout[nostamp] = "1"
+# All images share the single "vulnscout" container, so serialize the tasks
+do_setup_vulnscout[lockfiles] = "${TMPDIR}/vulnscout-container.lock"
+# Podman needs network access (rootless userns and image pull); BitBake
+# isolates tasks otherwise. Docker talks to its daemon and does not.
+do_setup_vulnscout[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
 do_setup_vulnscout[doc] = "Configure the env file and create a new container"
 
 do_stop_vulnscout() {
-    docker_status=$(docker inspect vulnscout --format '{{.State.Status}}' 2>/dev/null || true)
+    export PATH="/usr/bin:/usr/sbin:$PATH"
+    # BitBake sets a temporary HOME; Podman stores its images under the real one
+    if [ "${VULNSCOUT_CONTAINER_ENGINE}" = "podman" ]; then
+        real_home=$(getent passwd "$(id -u)" | cut -d: -f6)
+        [ -n "$real_home" ] && export HOME="$real_home"
+    fi
+    docker_status=$(${VULNSCOUT_CONTAINER_ENGINE} inspect vulnscout --format '{{.State.Status}}' 2>/dev/null || true)
     if [ "$docker_status" = "running" ]; then
         bbplain "Stopping Vulnscout container..."
-        if ! docker stop vulnscout >/dev/null; then
+        if ! ${VULNSCOUT_CONTAINER_ENGINE} stop vulnscout >/dev/null; then
             bbfatal "Error: failed to stop the vulnscout container."
         fi
     fi
 }
 do_stop_vulnscout[nostamp] = "1"
+do_stop_vulnscout[lockfiles] = "${TMPDIR}/vulnscout-container.lock"
+do_stop_vulnscout[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
 do_stop_vulnscout[doc] = "Stop the VulnScout Docker container after a normal build"
 addtask stop_vulnscout after do_setup_vulnscout before do_build
+
+# Helper function to get the container engine command
+def container_engine(d):
+    import os
+    # Use host binaries first: the native sysroot ships a non-setuid
+    # newuidmap that breaks rootless podman
+    os.environ["PATH"] = "/usr/bin:/usr/sbin:" + os.environ.get("PATH", "")
+    engine = d.getVar("VULNSCOUT_CONTAINER_ENGINE")
+    if engine == "podman":
+        # BitBake sets a temporary HOME, but Podman keeps its containers
+        # and images under the real one
+        import pwd
+        os.environ["HOME"] = pwd.getpwuid(os.getuid()).pw_dir
+    return engine
 
 # Helper function to find files in a directory and its subdirectories based on a pattern
 def find_all(name, path):
@@ -219,6 +327,7 @@ def find_all(name, path):
 # Returns the in-container path of the SPDX file and, if it exists, of the
 # CVE-Check file (None otherwise)
 def copy_sbom_files_to_container(d):
+    engine = container_engine(d)
     import subprocess
     import os
 
@@ -245,13 +354,13 @@ def copy_sbom_files_to_container(d):
     cve_check_real_path = os.path.realpath(cve_check_used_path)
 
     # Copy the SPDX into the container
-    subprocess.run(['docker', 'cp', spdx_real_path, 'vulnscout:/tmp/'], check=True)
+    subprocess.run([engine, 'cp', spdx_real_path, 'vulnscout:/tmp/'], check=True)
     spdx_in_container = f"/tmp/{os.path.basename(spdx_real_path)}"
 
     # Copy the CVE-Check into the container if it exists
     cve_check_in_container = None
     if os.path.exists(cve_check_real_path):
-        subprocess.run(['docker', 'cp', cve_check_real_path, 'vulnscout:/tmp/'], check=True)
+        subprocess.run([engine, 'cp', cve_check_real_path, 'vulnscout:/tmp/'], check=True)
         cve_check_in_container = f"/tmp/{os.path.basename(cve_check_real_path)}"
 
     return spdx_in_container, cve_check_in_container
@@ -259,7 +368,8 @@ def copy_sbom_files_to_container(d):
 # Helper function to copy reports templates in the container
 # If there is not templates on the host, it try anyway
 # they may be already present in the container
-def copy_reports_to_container(reports, folder):
+def copy_reports_to_container(d, reports, folder):
+    engine = container_engine(d)
     import subprocess
     import os
 
@@ -272,7 +382,7 @@ def copy_reports_to_container(reports, folder):
 
     # Copy the templates specified in the container
     for template in templates:
-        subprocess.run(['docker', 'cp', template, 'vulnscout:/tmp/'], check=True)
+        subprocess.run([engine, 'cp', template, 'vulnscout:/tmp/'], check=True)
         template_in_container = f"/tmp/{os.path.basename(template)}"
         cmd += ['--report', template_in_container]
     # If no template on the host, try the report on the container
@@ -289,11 +399,12 @@ def print_generated_files(files, deploy_dir):
         bb.plain(f"Generated file: {file}")
 
 # Helper function to check if the Vulnscout Flask port is already in use
-def check_vulnscout_port(port):
+def check_vulnscout_port(d, port):
+    engine = container_engine(d)
     import subprocess
 
     port_check = subprocess.run(
-        ['docker', 'exec', 'vulnscout', 'python3', '-c',
+        [engine, 'exec', 'vulnscout', 'python3', '-c',
          f'import socket; s=socket.socket(); s.settimeout(1); print("in_use" if s.connect_ex(("localhost", {port})) == 0 else "free"); s.close()'],
         capture_output=True, text=True
     )
@@ -303,166 +414,502 @@ def check_vulnscout_port(port):
                 f"Close the existing session before launching a new one.")
     return False
 
-python do_vulnscout_ci() {
+# Setup the container for the tasks working on the stored data: they do not
+# need the SBOM and CVE-Check files of the image
+def vulnscout_setup(d):
+    d.setVar("VULNSCOUT_CHECK_REQUIREMENTS", "0")
+    bb.build.exec_func("do_setup_vulnscout", d)
+
+# Helper function to run an entrypoint command in the container.
+# The output is printed in the BitBake log and the exit code is returned.
+def run_vulnscout(d, args):
     import subprocess
+
+    engine = container_engine(d)
+    process = subprocess.Popen([engine, 'exec', 'vulnscout', '/scan/src/entrypoint.sh'] + args,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    with process.stdout:
+        for line in process.stdout:
+            bb.plain(line.rstrip())
+    return process.wait()
+
+# Same as run_vulnscout, but any non-zero exit code is fatal
+def run_vulnscout_or_fail(d, command, args):
+    exit_code = run_vulnscout(d, args)
+    if exit_code != 0:
+        bb.fatal(f"vulnscout {command} failed with exit code {exit_code}.")
+
+# Common parent directory of the layers
+def vulnscout_layers_dir(d):
     import os
+    layers = [os.path.realpath(layer) for layer in (d.getVar("BBLAYERS") or "").split()]
+    if not layers:
+        return ""
+    common = os.path.commonpath(layers)
+    return common if common != "/" else ""
 
-    # Retrieve project and variant information
-    variant = d.getVar("VULNSCOUT_VARIANT")
-    project = d.getVar("VULNSCOUT_PROJECT")
-    output_vulnscout = d.getVar("VULNSCOUT_DEPLOY_DIR")
-    template_folder = (d.getVar("VULNSCOUT_CUSTOM_TEMPLATES_DIR"))
-    report_ci = (d.getVar("VULNSCOUT_REPORT_CI") or "").split()
+# Run a command of the container engine and return its output, or None on failure
+def vulnscout_engine_output(d, args, **kwargs):
+    import subprocess
+    result = subprocess.run([container_engine(d)] + args, capture_output=True, text=True, **kwargs)
+    return result.stdout.strip() if result.returncode == 0 else None
 
-    # Check if a match_condition has been set, if not failed.
-    match_condition = d.getVar("VULNSCOUT_MATCH_CONDITION")
-    if match_condition and report_ci:
-        bb.note(
-            f"\nLaunching vulnscout in CI mode with match condition set has: " + match_condition + "\n"
-            f"Generating scan report " + ", ".join(report_ci) + " Scanning ..." )
-    elif match_condition:
-        bb.note(f"Launching vulnscout in CI mode with match condition set has: " + match_condition + " Scanning ..." )
+# Whether the VulnScout image provides the ai-context command
+def vulnscout_ai_context_supported(d):
+    import subprocess
+    check = subprocess.run([container_engine(d), 'exec', 'vulnscout', 'grep', '-q', 'ai-context-attach',
+                            '/scan/src/entrypoint.sh'], capture_output=True)
+    return check.returncode == 0
+
+# Parse VULNSCOUT_AI_CONTEXT in alias=path pairs, with the existing folders only
+def vulnscout_ai_context_pairs(d):
+    import os
+    pairs = []
+    for entry in (d.getVar("VULNSCOUT_AI_CONTEXT") or "").split():
+        alias, separator, path = entry.partition("=")
+        if not separator or not alias or not path:
+            raise RuntimeError(f"Invalid VULNSCOUT_AI_CONTEXT entry '{entry}': expected alias=path.")
+        if not os.path.isdir(path):
+            bb.warn(f"AI context folder '{alias}' not found, skipping: {path}")
+            continue
+        pairs.append((alias, os.path.realpath(path)))
+    return pairs
+
+# Start the host helper serving the attached folders. It is an unprivileged
+# process run as the current user, listening on a socket of the cache directory
+def vulnscout_ai_context_helper_start(d):
+    import os
+    import shutil
+    import subprocess
+
+    engine = container_engine(d)
+    state_dir = d.getVar("VULNSCOUT_AI_CONTEXT_HELPER_DIR")
+    socket_path = os.path.join(d.getVar("VULNSCOUT_CACHE_DIR"), "host-helper", "helper.sock")
+    pid_file = os.path.join(state_dir, "helper.pid")
+    snapshot_mib = d.getVar("VULNSCOUT_AI_CONTEXT_SNAPSHOT_MIB")
+
+    old_umask = os.umask(0o077)
+    os.makedirs(state_dir, exist_ok=True)
+    os.umask(old_umask)
+    os.chmod(state_dir, 0o700)
+
+    image = f'{d.getVar("VULNSCOUT_IMAGE")}:{d.getVar("VULNSCOUT_IMAGE_VERSION")}'
+    image_id = vulnscout_engine_output(d, ['image', 'inspect', image, '--format', '{{.Id}}'])
+    if not image_id:
+        raise RuntimeError(f"Cannot identify the VulnScout image {image}.")
+    image_id = image_id.replace("sha256:", "")
+
+    script = os.path.join(state_dir, f"host_mount_helper-{image_id}.py")
+    if not os.path.isfile(script):
+        content = subprocess.run([engine, 'run', '--rm', '--entrypoint', 'cat', image_id,
+                                  '/scan/src/helpers/host_mount_helper.py'], capture_output=True)
+        if content.returncode != 0 or not content.stdout:
+            raise RuntimeError(f"Cannot extract the host folder helper from {image}: it needs VulnScout v0.26 or later.")
+        with open(script + ".tmp", "wb") as helper:
+            helper.write(content.stdout)
+        os.replace(script + ".tmp", script)
+
+    # With SELinux, the socket must carry the label of the container
+    label = ""
+    if os.path.exists("/sys/fs/selinux/enforce"):
+        label = vulnscout_engine_output(d, ['inspect', 'vulnscout', '--format', '{{.ProcessLabel}}']) or ""
+    engine_path = shutil.which(engine)
+    identity = f"{os.path.basename(script)}|{label}|{engine_path}|{socket_path}|{snapshot_mib}"
+    identity_file = os.path.join(state_dir, "image.active")
+
+    def helper_pid():
+        try:
+            with open(pid_file) as f:
+                pid = int(f.read().strip())
+            os.kill(pid, 0)
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                return pid if b"host_mount_helper" in f.read() else None
+        except (OSError, ValueError):
+            return None
+
+    def read_identity():
+        try:
+            with open(identity_file) as f:
+                return f.read().strip()
+        except OSError:
+            return ""
+
+    pid = helper_pid()
+    if pid and os.path.exists(socket_path) and read_identity() == identity:
+        return
+    if pid:
+        import signal
+        import time
+        os.kill(pid, signal.SIGTERM)
+        for _ in range(100):
+            if helper_pid() != pid:
+                break
+            time.sleep(0.1)
+
+    command = ['python3', '-I', script, 'serve', '--daemon', '--socket', socket_path,
+               '--state-dir', state_dir, '--pid-file', pid_file, '--engine', engine_path,
+               '--image', image_id, '--snapshot-mib', snapshot_mib,
+               '--log-file', os.path.join(state_dir, "helper.log")]
+    if label:
+        command += ['--socket-label', label]
+    started = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True)
+    if started.returncode != 0:
+        raise RuntimeError(f"The host folder helper did not start: {started.stderr.strip()}")
+
+    import time
+    for _ in range(50):
+        if helper_pid() and os.path.exists(socket_path):
+            break
+        time.sleep(0.1)
     else:
-        bb.fatal(f"Launching vulnscout in CI mode without match condition. Please set a match condition.")
+        raise RuntimeError(f"The host folder helper did not start, see {state_dir}/helper.log.")
+    with open(identity_file, "w") as f:
+        f.write(identity + "\n")
 
-    # Launch the vulnscout in CI with the match condition
-    cmd = ['docker', 'exec', 'vulnscout', '/scan/src/entrypoint.sh', '--project', project, '--variant', variant]
-    if match_condition:
-        cmd += ['--match-condition', match_condition]
+# Stop the host helper
+def vulnscout_ai_context_helper_stop(d):
+    import os
+    import signal
+    import time
 
-    # Copy the SPDX and CVE-Check files into the container and add them to the scan
+    pid_file = os.path.join(d.getVar("VULNSCOUT_AI_CONTEXT_HELPER_DIR"), "helper.pid")
+    try:
+        with open(pid_file) as f:
+            pid = int(f.read().strip())
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            is_helper = b"host_mount_helper" in f.read()
+    except (OSError, ValueError):
+        bb.plain("The host folder helper is not running.")
+        return
+    if not is_helper:
+        bb.plain("The host folder helper is not running.")
+        return
+    os.kill(pid, signal.SIGTERM)
+    for _ in range(600):
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            break
+        time.sleep(0.1)
+    else:
+        raise RuntimeError("The host folder helper has not stopped.")
+    bb.plain("Host folder helper stopped.")
+
+# Attach the folders of VULNSCOUT_AI_CONTEXT to the AI context of the image.
+# The host approves each folder with a permit file read by the helper
+def vulnscout_ai_context_attach(d):
+    import os
+    import secrets
+    import shutil
+
+    pairs = vulnscout_ai_context_pairs(d)
+    if not pairs:
+        bb.plain("No AI context folder to attach: VULNSCOUT_AI_CONTEXT is empty.")
+        return
+    vulnscout_ai_context_helper_start(d)
+
+    state_dir = d.getVar("VULNSCOUT_AI_CONTEXT_HELPER_DIR")
+    scope_args = vulnscout_scope_args(d)
+    engine = container_engine(d)
+    import subprocess
+    scope = subprocess.run([engine, 'exec', 'vulnscout', '/scan/src/entrypoint.sh'] + scope_args +
+                           ['--ai-context-list', '--variant-id-only'], capture_output=True, text=True)
+    if scope.returncode != 0:
+        raise RuntimeError(f"Cannot resolve the variant of the image, run vulnscout_add first: {scope.stdout.strip()} {scope.stderr.strip()}")
+    variant_id = scope.stdout.strip()
+    try:
+        with open(os.path.join(state_dir, "permit.epoch")) as f:
+            epoch = f.read().strip()
+    except OSError:
+        raise RuntimeError("Cannot verify the running host helper, restart it with vulnscout_ai_context_helper_stop.")
+
+    # The helper only accepts permit.<12 alphanumeric characters>
+    permit = os.path.join(state_dir, "permit." + secrets.token_hex(6))
+    os.mkdir(permit, 0o700)
+    try:
+        for alias, path in pairs:
+            with open(os.path.join(permit, alias), "w") as f:
+                f.write(f"{epoch}\0{variant_id}\0{path}")
+        args = scope_args + ['--ai-context-attach', '--host-permit', os.path.basename(permit)]
+        args += [f"{alias}={path}" for alias, path in pairs]
+        exit_code = run_vulnscout(d, args)
+        if exit_code != 0:
+            raise RuntimeError(f"ai-context attach failed with exit code {exit_code}.")
+    finally:
+        shutil.rmtree(permit, ignore_errors=True)
+
+# Attach the default AI context before a task using the AI agent. This is
+# best effort: the image may not support it or the variant may not exist yet
+def vulnscout_ai_context_auto(d):
+    if not (d.getVar("VULNSCOUT_AI_CONTEXT") or "").strip():
+        return
+    if not vulnscout_ai_context_supported(d):
+        bb.note("The VulnScout image has no ai-context support (v0.26 or later), skipping the AI context.")
+        return
+    try:
+        vulnscout_ai_context_attach(d)
+    except Exception as error:
+        bb.warn(f"Could not attach the AI context folders: {error}")
+
+# Project and variant of the current image
+def vulnscout_scope_args(d):
+    return ['--project', d.getVar("VULNSCOUT_PROJECT"), '--variant', d.getVar("VULNSCOUT_VARIANT")]
+
+# Add the SPDX and CVE-Check files of the image to the VulnScout database
+def vulnscout_add(d):
     spdx_in_container, cve_check_in_container = copy_sbom_files_to_container(d)
-    cmd += ['--add-spdx', spdx_in_container]
+    args = vulnscout_scope_args(d) + ['--add-spdx', spdx_in_container]
     if cve_check_in_container:
-        cmd += ['--add-cve-check', cve_check_in_container]
+        args += ['--add-cve-check', cve_check_in_container]
+    run_vulnscout_or_fail(d, "add", args)
 
-    if report_ci:
-        # Copy the custom templates or use the ones in the container
-        cmd += copy_reports_to_container(report_ci, template_folder)
-    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    # Print the logs in the current terminal
-    for line in process.stdout:
-        bb.plain(line.rstrip())
-    process.wait()
-    docker_exit_code = process.returncode
-
-    if report_ci:
-        print_generated_files(report_ci, output_vulnscout)
-
-    # If the container ended with a error code, stop the code and print it.
-    if docker_exit_code == 2:
-        bb.fatal(
-            f"\n----------------Vulnscout trigger match_condition----------------\n"
-            f"----------Trigger condition set : {match_condition}---------- \n"
-            f"\n---Vulnscout exit with code 2 due to match condition triggered: {match_condition}---\n"
-            f"---Vulnscout has generated multiple files here : {output_vulnscout} ---\n" )
-    else:
-        bb.plain(
-            f"\n---Vulnscout scan completed without triggering match condition: {match_condition}---\n"
-            f"\n---Vulnscout has generated multiple files here : {output_vulnscout} ---\n" )
-}
-do_vulnscout_ci[nostamp] = "1"
-do_vulnscout_ci[postfuncs] += "do_stop_vulnscout"
-do_vulnscout_ci[doc] = "Launch VulnScout in non-interactive mode. VULNSCOUT_MATCH_CONDITION can be used to test a match condition on the vulnerabilities"
-addtask vulnscout_ci after do_setup_vulnscout
-
-python do_vulnscout() {
+# Open the VulnScout web interface in a new terminal
+def vulnscout_serve(d):
     import os
     import subprocess
-
-    # Retrieve project and variant information
-    variant = d.getVar("VULNSCOUT_VARIANT")
-    project = d.getVar("VULNSCOUT_PROJECT")
-
+    engine = container_engine(d)
     port = int(d.getVar("VULNSCOUT_ENV_FLASK_RUN_PORT"))
 
-    # Copy the SPDX and CVE-Check files into the container
-    spdx_in_container, cve_check_in_container = copy_sbom_files_to_container(d)
-
     # Warn if Flask is already serving inside the container
-    check_vulnscout_port(port)
+    check_vulnscout_port(d, port)
 
-    # Check if CVE-Check exist, if yes launch Vulnscout with it
-    if cve_check_in_container:
-        # Launch Vulnscout in a new terminal and adding the SPDX and CVE-Check files in the database
-        cmd = f"docker exec vulnscout /scan/src/entrypoint.sh --project {project} --variant {variant} --add-spdx {spdx_in_container} --add-cve-check {cve_check_in_container} --serve ; echo; echo Container exited. Press any key to close...; read x"
-        oe_terminal(cmd, "Vulnscout Container Logs", d)
-    else:
-        # if not launch Vulnscout with only the SPDX file
-        cmd = f"docker exec vulnscout /scan/src/entrypoint.sh --project {project} --variant {variant} --add-spdx {spdx_in_container} --serve ; echo; echo Container exited. Press any key to close...; read x"
-        oe_terminal(cmd, "Vulnscout Container Logs", d)
+    # Without a graphical session, tmux or screen, no terminal can be opened:
+    # serve in the BitBake task itself until interrupted with Ctrl-C
+    no_terminal = not any(os.environ.get(v) for v in ("DISPLAY", "WAYLAND_DISPLAY", "TMUX", "STY"))
+    if d.getVar("VULNSCOUT_SERVE_FOREGROUND") == "1" or no_terminal:
+        bb.plain(f"Serving VulnScout on http://localhost:{port} (Ctrl-C to stop)...")
+        subprocess.run([engine, "exec", "vulnscout", "/scan/src/entrypoint.sh", "--serve"], check=False)
+        return
 
+    cmd = f"{engine} exec vulnscout /scan/src/entrypoint.sh --serve ; echo; echo Container exited. Press any key to close...; read x"
+    oe_terminal(cmd, "Vulnscout Container Logs", d)
+
+# Generate the reports from the templates found on the host or in the container
+def vulnscout_report(d, reports, condition=None):
+    template_folder = d.getVar("VULNSCOUT_CUSTOM_TEMPLATES_DIR")
+    args = vulnscout_scope_args(d) + copy_reports_to_container(d, reports, template_folder)
+    if condition:
+        args += ['--match-condition', condition]
+    exit_code = run_vulnscout(d, args)
+    # With a condition, a match (exit code 2) still means the reports were written
+    if exit_code != 0 and not (condition and exit_code == 2):
+        bb.fatal(f"vulnscout report failed with exit code {exit_code}.")
+    print_generated_files(reports, d.getVar("VULNSCOUT_DEPLOY_DIR"))
+
+# Test the stored vulnerabilities against the match condition
+def vulnscout_match_condition(d, condition):
+    output_vulnscout = d.getVar("VULNSCOUT_DEPLOY_DIR")
+    exit_code = run_vulnscout(d, vulnscout_scope_args(d) + ['--match-condition', condition])
+
+    if exit_code == 2:
+        bb.fatal(
+            f"\n----------------Vulnscout trigger match_condition----------------\n"
+            f"----------Trigger condition set : {condition}---------- \n"
+            f"\n---Vulnscout exit with code 2 due to match condition triggered: {condition}---\n"
+            f"---Vulnscout has generated multiple files here : {output_vulnscout} ---\n" )
+    elif exit_code != 0:
+        bb.fatal(f"vulnscout match-condition failed with exit code {exit_code}.")
+    bb.plain(
+        f"\n---Vulnscout scan completed without triggering match condition: {condition}---\n"
+        f"\n---Vulnscout has generated multiple files here : {output_vulnscout} ---\n" )
+
+# Option shared by assess and review
+def vulnscout_ai_options(d):
+    args = []
+    model = d.getVar("VULNSCOUT_AI_MODEL")
+    timeout = d.getVar("VULNSCOUT_AI_TIMEOUT")
+    if model:
+        args += ['--model', model]
+    if timeout:
+        if not timeout.isdigit() or int(timeout) < 1:
+            bb.fatal("VULNSCOUT_AI_TIMEOUT must be a positive number of seconds.")
+        args += ['--timeout', timeout]
+    if d.getVar("VULNSCOUT_AI_DRY_RUN") == "1":
+        args += ['--dry-run']
+    return args
+
+python do_vulnscout_add() {
+    # Import the SBOM and the CVE-Check of the image
+    vulnscout_add(d)
 }
-do_vulnscout[nostamp] = "1"
-do_vulnscout[postfuncs] += "do_stop_vulnscout"
-do_vulnscout[doc] = "Open a new terminal and launch VulnScout web interface through a Docker container"
-addtask vulnscout after do_setup_vulnscout
+do_vulnscout_add[nostamp] = "1"
+do_vulnscout_add[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_add[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_add[doc] = "Add the SBOM and the CVE-Check of the image to VulnScout, then process them"
+addtask vulnscout_add after do_setup_vulnscout
+
+python do_vulnscout_scan() {
+    vulnscout_setup(d)
+    scanners = (d.getVar("VULNSCOUT_SCANNERS") or "all").replace(",", " ").split()
+    valid = ["grype", "nvd", "osv", "sbom-cve-check", "all"]
+    for scanner in scanners:
+        if scanner not in valid:
+            bb.fatal(f"Invalid scanner: {scanner}. Supported scanners are: {', '.join(valid)}.")
+    run_vulnscout_or_fail(d, "scan", vulnscout_scope_args(d) + ['--perform-scans', ",".join(scanners)])
+}
+do_vulnscout_scan[nostamp] = "1"
+do_vulnscout_scan[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_scan[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_scan[doc] = "Run the vulnerability scanners listed in VULNSCOUT_SCANNERS on the stored data"
+addtask vulnscout_scan
+
+python do_vulnscout_refresh() {
+    vulnscout_setup(d)
+    run_vulnscout_or_fail(d, "refresh", vulnscout_scope_args(d) + ['--refresh-vulnerability-data'])
+}
+do_vulnscout_refresh[nostamp] = "1"
+do_vulnscout_refresh[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_refresh[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_refresh[doc] = "Refresh the stored vulnerability data of the image, including EPSS"
+addtask vulnscout_refresh
+
+python do_vulnscout_assess() {
+    vulnscout_setup(d)
+    vulnscout_ai_context_auto(d)
+    cves = (d.getVar("VULNSCOUT_ASSESS_CVES") or "").split()
+    condition = d.getVar("VULNSCOUT_FILTER")
+    if bool(cves) == bool(condition):
+        bb.fatal("vulnscout assess needs exactly one of VULNSCOUT_ASSESS_CVES or VULNSCOUT_FILTER.")
+
+    args = ['--project', d.getVar("VULNSCOUT_PROJECT"), '--ai-assess', '--variant', d.getVar("VULNSCOUT_VARIANT")]
+    for cve in cves:
+        args += ['--cve', cve]
+    if condition:
+        args += ['--filter', condition]
+    run_vulnscout_or_fail(d, "assess", args + vulnscout_ai_options(d))
+}
+do_vulnscout_assess[nostamp] = "1"
+do_vulnscout_assess[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_assess[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_assess[doc] = "Assess vulnerabilities with the AI agent. Set VULNSCOUT_ASSESS_CVES or VULNSCOUT_FILTER"
+addtask vulnscout_assess
+
+python do_vulnscout_review() {
+    vulnscout_setup(d)
+    vulnscout_ai_context_auto(d)
+    cves = (d.getVar("VULNSCOUT_REVIEW_CVES") or "").split()
+    assessment_ids = (d.getVar("VULNSCOUT_REVIEW_ASSESSMENT_IDS") or "").split()
+    if bool(cves) == bool(assessment_ids):
+        bb.fatal("vulnscout review needs exactly one of VULNSCOUT_REVIEW_CVES or VULNSCOUT_REVIEW_ASSESSMENT_IDS.")
+
+    args = ['--project', d.getVar("VULNSCOUT_PROJECT"), '--ai-review']
+    if cves:
+        args += ['--variant', d.getVar("VULNSCOUT_VARIANT")]
+    for cve in cves:
+        args += ['--cve', cve]
+    for assessment_id in assessment_ids:
+        args += ['--assessment-id', assessment_id]
+    if d.getVar("VULNSCOUT_REVIEW_RE_REVIEW") == "1":
+        args += ['--re-review']
+    run_vulnscout_or_fail(d, "review", args + vulnscout_ai_options(d))
+}
+do_vulnscout_review[nostamp] = "1"
+do_vulnscout_review[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_review[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_review[doc] = "Review custom assessments with the AI agent. Set VULNSCOUT_REVIEW_CVES or VULNSCOUT_REVIEW_ASSESSMENT_IDS"
+addtask vulnscout_review
+
+python do_vulnscout_match_condition() {
+    vulnscout_setup(d)
+    condition = d.getVar("VULNSCOUT_FILTER")
+    if not condition:
+        bb.fatal("vulnscout match-condition needs a match condition. Please set VULNSCOUT_FILTER.")
+    vulnscout_match_condition(d, condition)
+}
+do_vulnscout_match_condition[nostamp] = "1"
+do_vulnscout_match_condition[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_match_condition[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_match_condition[doc] = "Test the stored vulnerabilities against VULNSCOUT_FILTER. Fails if any vulnerability matches"
+addtask vulnscout_match_condition
+
+python do_vulnscout_report() {
+    vulnscout_setup(d)
+    reports = (d.getVar("VULNSCOUT_REPORT") or "").split()
+    vulnscout_report(d, reports)
+}
+do_vulnscout_report[nostamp] = "1"
+do_vulnscout_report[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_report[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_report[doc] = "Generate Vulnscout report files from custom templates"
+addtask vulnscout_report
 
 python do_vulnscout_export() {
-    import subprocess
-
+    vulnscout_setup(d)
     # Retrieve the export formats and deploy directory
     exports = (d.getVar("VULNSCOUT_EXPORT") or "").split()
     deploy_dir = d.getVar("VULNSCOUT_DEPLOY_DIR")
-    cmd_export = ""
 
     # Check if the export formats are valid
     for export in exports:
         if export not in ["spdx", "cdx", "openvex"]:
             bb.fatal(f"Invalid export format: {export}. Supported formats are: spdx, cdx, openvex.")
-        cmd_export += "--export-" + export + " "
 
     # Launch the creation of all the export files
-    subprocess.run(['docker', 'exec', 'vulnscout', '/scan/src/entrypoint.sh'] + cmd_export.split(), check=True)
+    cmd_export = vulnscout_scope_args(d)
+    for export in exports:
+        cmd_export += ['--export-' + export]
+    run_vulnscout_or_fail(d, "export", cmd_export)
 
     print_generated_files(exports, deploy_dir)
-
 }
 do_vulnscout_export[nostamp] = "1"
+do_vulnscout_export[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
 do_vulnscout_export[postfuncs] += "do_stop_vulnscout"
 do_vulnscout_export[doc] = "Generate export files from VulnScout in a Docker container"
-addtask vulnscout_export after do_setup_vulnscout
+addtask vulnscout_export
 
-python do_vulnscout_report() {
-    import subprocess
-
-    # Retrieve the custom templates, report names and deploy directory
-    template_folder = (d.getVar("VULNSCOUT_CUSTOM_TEMPLATES_DIR"))
-    reports = (d.getVar("VULNSCOUT_REPORT") or "").split()
-    deploy_dir = d.getVar("VULNSCOUT_DEPLOY_DIR")
-    cmd_report = ""
-
-    # Call the function to copy the template in the container
-    cmd_report = copy_reports_to_container(reports, template_folder)
-
-    # Launch the creation of all the reports
-    subprocess.run(['docker', 'exec', 'vulnscout', '/scan/src/entrypoint.sh'] + cmd_report, check=True)
-
-    print_generated_files(reports, deploy_dir)
-
+python do_vulnscout_serve() {
+    vulnscout_setup(d)
+    vulnscout_ai_context_auto(d)
+    vulnscout_serve(d)
 }
-do_vulnscout_report[nostamp] = "1"
-do_vulnscout_report[postfuncs] += "do_stop_vulnscout"
-do_vulnscout_report[doc] = "Generate Vulnscout report files from custom templates"
-addtask do_vulnscout_report after do_setup_vulnscout
+do_vulnscout_serve[nostamp] = "1"
+do_vulnscout_serve[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_serve[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_serve[doc] = "Open a new terminal and launch the VulnScout web interface on the stored data"
+addtask vulnscout_serve
 
-python do_vulnscout_no_scan(){
-    import subprocess
-
-    port = int(d.getVar("VULNSCOUT_ENV_FLASK_RUN_PORT"))
-
-    # Call the function setup_vulnscout
-    bb.build.exec_func("do_setup_vulnscout", d)
-
-    # Warn if Flask is already serving inside the container
-    check_vulnscout_port(port)
-
-    # Launching Vulnscout without scan
-    cmd = f"docker exec vulnscout /scan/src/entrypoint.sh --serve ; echo; echo Container exited. Press any key to close...; read x"
-    oe_terminal(cmd, "Vulnscout Container Logs", d)
-
+python do_vulnscout_ai_context_attach() {
+    vulnscout_setup(d)
+    if not vulnscout_ai_context_supported(d):
+        bb.fatal("The VulnScout image has no ai-context support, use VulnScout v0.26 or later.")
+    try:
+        vulnscout_ai_context_attach(d)
+    except RuntimeError as error:
+        bb.fatal(str(error))
 }
-do_vulnscout_no_scan[nostamp] = "1"
-do_vulnscout_no_scan[postfuncs] += "do_stop_vulnscout"
-do_vulnscout_no_scan[doc] = "Open a new terminal and launch VulnScout web interface in a Docker container without any scan"
-addtask vulnscout_no_scan
+do_vulnscout_ai_context_attach[nostamp] = "1"
+do_vulnscout_ai_context_attach[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_ai_context_attach[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_ai_context_attach[doc] = "Attach the host folders of VULNSCOUT_AI_CONTEXT (default: the build directory and the layers) to the AI context, read-only"
+addtask vulnscout_ai_context_attach
+
+python do_vulnscout_ai_context_list() {
+    vulnscout_setup(d)
+    run_vulnscout_or_fail(d, "ai-context list", vulnscout_scope_args(d) + ['--ai-context-list'])
+}
+do_vulnscout_ai_context_list[nostamp] = "1"
+do_vulnscout_ai_context_list[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_ai_context_list[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_ai_context_list[doc] = "List the host folders attached to the AI context and their availability"
+addtask vulnscout_ai_context_list
+
+python do_vulnscout_ai_context_detach() {
+    vulnscout_setup(d)
+    aliases = [entry.partition("=")[0] for entry in (d.getVar("VULNSCOUT_AI_CONTEXT") or "").split()]
+    if not aliases:
+        bb.fatal("vulnscout ai-context detach needs the aliases to detach. Please set VULNSCOUT_AI_CONTEXT.")
+    run_vulnscout_or_fail(d, "ai-context detach", vulnscout_scope_args(d) + ['--ai-context-detach'] + aliases)
+}
+do_vulnscout_ai_context_detach[nostamp] = "1"
+do_vulnscout_ai_context_detach[network] = "${@'1' if d.getVar('VULNSCOUT_CONTAINER_ENGINE') == 'podman' else ''}"
+do_vulnscout_ai_context_detach[postfuncs] += "do_stop_vulnscout"
+do_vulnscout_ai_context_detach[doc] = "Detach the folders of VULNSCOUT_AI_CONTEXT from the AI context"
+addtask vulnscout_ai_context_detach
+
+python do_vulnscout_ai_context_helper_stop() {
+    vulnscout_ai_context_helper_stop(d)
+}
+do_vulnscout_ai_context_helper_stop[nostamp] = "1"
+do_vulnscout_ai_context_helper_stop[doc] = "Stop the host helper serving the AI context folders"
+addtask vulnscout_ai_context_helper_stop
