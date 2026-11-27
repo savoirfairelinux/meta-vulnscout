@@ -36,7 +36,7 @@ VULNSCOUT_AI_CONTEXT_HELPER_DIR ?= "${VULNSCOUT_BASE_DIR}/host-helper"
 VULNSCOUT_AI_CONTEXT_SNAPSHOT_MIB ?= "512"
 
 # Repo and version of vulnscout to use
-VULNSCOUT_IMAGE_VERSION ?= "v0.25.1"
+VULNSCOUT_IMAGE_VERSION ?= "v0.26"
 VULNSCOUT_IMAGE ?= "docker.io/sflinux/vulnscout"
 
 # Container engine command: "docker" or "podman"
